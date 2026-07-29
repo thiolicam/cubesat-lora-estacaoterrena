@@ -1,0 +1,17 @@
+# PlatformIO / Firmware
+.pio/
+*.bin
+
+# Python / Ambientes virtuais
+__pycache__/
+*.pyc
+venv/
+.env
+
+# Banco de dados local
+*.sqlite3
+*.db
+
+# OS
+.DS_Store
+Thumbs.db

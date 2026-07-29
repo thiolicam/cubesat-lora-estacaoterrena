@@ -1,0 +1,47 @@
+{
+    "configurations": [
+        {
+            "name": "ESP32",
+            "includePath": [
+                "${workspaceFolder}/firmware/cubesat-simulator/src",
+                "${workspaceFolder}/firmware/cubesat-simulator/.pio/libdeps/esp32dev/LoRa/src",
+                "C:/Users/Particular/.platformio/packages/framework-arduinoespressif32/cores/esp32",
+                "C:/Users/Particular/.platformio/packages/framework-arduinoespressif32/libraries/SPI/src",
+                "C:/Users/Particular/.platformio/packages/framework-arduinoespressif32/tools/sdk/esp32/include",
+                "C:/Users/Particular/.platformio/packages/framework-arduinoespressif32/tools/sdk/esp32/qio_qspi/include",
+                "C:/Users/Particular/.platformio/packages/framework-arduinoespressif32/tools/sdk/esp32/include/freertos/include",
+                "C:/Users/Particular/.platformio/packages/framework-arduinoespressif32/tools/sdk/esp32/include/freertos/include/esp_additions/freertos",
+                "C:/Users/Particular/.platformio/packages/framework-arduinoespressif32/tools/sdk/esp32/include/lwip/lwip/src/include",
+                "C:/Users/Particular/.platformio/packages/framework-arduinoespressif32/tools/sdk/esp32/include/lwip/port/esp32/include",
+                "C:/Users/Particular/.platformio/packages/framework-arduinoespressif32/variants/esp32"
+            ],
+            "defines": [
+                "ESP32",
+                "ARDUINO=10819",
+                "ARDUINO_ESP32_DEV",
+                "F_CPU=240000000L",
+                "CFG_REGION_US915"
+            ],
+            "compilerPath": "C:/Users/Particular/.platformio/packages/toolchain-xtensa-esp32/bin/xtensa-esp32-elf-g++.exe",
+            "cStandard": "c17",
+            "cppStandard": "c++17",
+            "intelliSenseMode": "gcc-x64",
+            "browse": {
+                "path": [
+                    "${workspaceFolder}/firmware/cubesat-simulator/src",
+                    "${workspaceFolder}/firmware/cubesat-simulator/.pio/libdeps/esp32dev/LoRa/src",
+                    "C:/Users/Particular/.platformio/packages/framework-arduinoespressif32/cores/esp32",
+                    "C:/Users/Particular/.platformio/packages/framework-arduinoespressif32/libraries/SPI/src",
+                    "C:/Users/Particular/.platformio/packages/framework-arduinoespressif32/tools/sdk/esp32/include",
+                    "C:/Users/Particular/.platformio/packages/framework-arduinoespressif32/tools/sdk/esp32/qio_qspi/include",
+                    "C:/Users/Particular/.platformio/packages/framework-arduinoespressif32/tools/sdk/esp32/include/freertos/include",
+                    "C:/Users/Particular/.platformio/packages/framework-arduinoespressif32/tools/sdk/esp32/include/freertos/include/esp_additions/freertos",
+                    "C:/Users/Particular/.platformio/packages/framework-arduinoespressif32/tools/sdk/esp32/include/lwip/lwip/src/include",
+                    "C:/Users/Particular/.platformio/packages/framework-arduinoespressif32/tools/sdk/esp32/include/lwip/port/esp32/include",
+                    "C:/Users/Particular/.platformio/packages/framework-arduinoespressif32/variants/esp32"
+                ]
+            }
+        }
+    ],
+    "version": 4
+}
