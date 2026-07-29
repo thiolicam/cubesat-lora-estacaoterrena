@@ -2,7 +2,6 @@
 #include <SPI.h>
 #include <LoRa.h>
 
-// Pinos padrão para o rádio RFM95 no ESP32 (ajuste se a sua placa usar outros pinos)
 const int ss = 5;
 const int rst = 14;
 const int dio0 = 26;
@@ -13,44 +12,41 @@ void setup() {
   Serial.begin(115200);
   while (!Serial);
   
-  // Inicialização do barramento SPI para o LoRa
   SPI.begin(18, 19, 23, ss);
   LoRa.setPins(ss, rst, dio0);
 
-  // Frequência LoRa (Ex: 915E6 para 915MHz ou 433E6 para 433MHz)
   if (!LoRa.begin(915E6)) {
     Serial.println("Erro ao iniciar o rádio LoRa!");
     while (1);
   }
   
-  LoRa.setTxPower(20);
-  Serial.println("CubeSat Simulator - Transmissor LoRa Iniciado.");
+  LoRa.enableCrc(); // Garante o CRC ativo
+  Serial.println("CubeSat Simulator - Nova Telemetria Iniciada.");
 }
 
 void loop() {
-  packetCounter++; // Contador sequencial obrigatório
+  packetCounter++;
 
-  // Simulação de dados variáveis da missão
-  float voltage = 3.65 + (random(0, 15) / 100.0);   // Tensão entre 3.65V e 3.80V
-  float current = 120.0 + random(-15, 15);         // Corrente em mA
-  float temperature = 24.5 + (random(-10, 10) / 10.0); // Temperatura flutuante
-  int mode = 1;                                    // 1 = Modo Normal de Operação
-  int errorFlags = 0;                              // 0 = Sem erros
+  // Dados variáveis simulados para a nova telemetria
+  float voltage = 3.70 + (random(0, 20) / 100.0);       // Tensão da bateria
+  float temperature = 22.0 + (random(-15, 15) / 10.0);  // Temperatura
+  int modoOperacao = 1;                                // 1 = Modo Normal
+  int flagsErro = 0;                                   // 0 = Sem falhas
+  float altitudeSimulada = 450.5 + (packetCounter * 0.2); // Altitude orbital simulada (km)
 
-  // Montagem do pacote de telemetria
+  // Montagem do pacote expandido
   String payload = "PKT:" + String(packetCounter) + 
                    ",V:" + String(voltage, 2) + 
-                   ",C:" + String(current, 1) + 
                    ",T:" + String(temperature, 1) + 
-                   ",M:" + String(mode) + 
-                   ",ERR:" + String(errorFlags);
+                   ",MOD:" + String(modoOperacao) + 
+                   ",ERR:" + String(flagsErro) + 
+                   ",ALT:" + String(altitudeSimulada, 1);
 
-  // Transmissão via LoRa
   LoRa.beginPacket();
   LoRa.print(payload);
   LoRa.endPacket();
 
-  Serial.println("Enviado: " + payload);
+  Serial.println("Enviado Nova Telemetria: " + payload);
 
-  delay(5000); // Envia a cada 5 segundos
+  delay(5000);
 }
