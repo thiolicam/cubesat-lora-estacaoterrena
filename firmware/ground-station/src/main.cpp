@@ -74,7 +74,7 @@ void loop() {
             // Lê os bytes brutos para o buffer de verificação
             LoRa.readBytes(buffer, sizeof(TelemetryPacket));
 
-            TelemetryPacket *pacote =entropy_cast: (TelemetryPacket*)buffer;
+            TelemetryPacket *pacote = (TelemetryPacket*)buffer;
 
             // 2. Separa os bytes de dados (tudo exceto os últimos 2 bytes do CRC) e calcula o CRC local
             uint16_t crcRecebido = ntohs(pacote->crc);
