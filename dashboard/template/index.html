@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <title>GCS - Estação Terrena CubeSat</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        body { background-color: #0b0f19; color: #e2e8f0; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
+        .card { background-color: #1e293b; border: 1px solid #334155; color: #f8fafc; }
+        .metric-value { font-size: 1.8rem; font-weight: bold; color: #38bdf8; }
+        .status-badge { width: 12px; height: 12px; display: inline-block; border-radius: 50%; background-color: #22c55e; }
+    </style>
+</head>
+<body>
+    <div class="container mt-4">
+        <div class="row mb-4">
+            <div class="col-md-12 d-flex justify-content-between align-items-center">
+                <h2>🛰️ GCS LoRa — Missão CubeSat</h2>
+                <div>
+                    <span class="status-badge me-1"></span> <small class="text-muted">Sistema Operacional</small>
+                </div>
+            </div>
+        </div>
+
+        <div class="row text-center mb-4">
+            <div class="col-md-3">
+                <div class="card p-3 shadow-sm">
+                    <small class="text-muted">Tensão da Bateria</small>
+                    <div class="metric-value" id="val-tensao">-- V</div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="card p-3 shadow-sm">
+                    <small class="text-muted">Temperatura</small>
+                    <div class="metric-value" id="val-temp">-- °C</div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="card p-3 shadow-sm">
+                    <small class="text-muted">Sinal LoRa (RSSI)</small>
+                    <div class="metric-value" id="val-rssi">-- dBm</div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="card p-3 shadow-sm">
+                    <small class="text-muted">Pacotes Válidos / Inválidos</small>
+                    <div class="metric-value fs-4 text-warning" id="val-pacotes">0 / 0</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="row">
+            <div class="col-md-12">
+                <div class="card p-4">
+                    <h5 class="card-title mb-3">Histórico de Temperatura e Tensão</h5>
+                    <canvas id="telemetryChart" height="100"></canvas>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const ctx = document.getElementById('telemetryChart').getContext('2d');
+        const telemetryChart = new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: [],
+                datasets: [{
+                    label: 'Temperatura (°C)',
+                    data: [],
+                    borderColor: '#f43f5e',
+                    tension: 0.1
+                }, {
+                    label: 'Tensão (V)',
+                    data: [],
+                    borderColor: '#38bdf8',
+                    tension: 0.1
+                }]
+            },
+            options: { responsive: true, maintainAspectRatio: false }
+        });
+
+        function atualizarDados() {
+            fetch('/api/dados-recentes')
+                .then(response => response.json())
+                .then(data => {
+                    if (data) {
+                        document.getElementById('val-tensao').innerText = data.tensao_bateria + " V";
+                        document.getElementById('val-temp').innerText = data.temperatura + " °C";
+                        document.getElementById('val-rssi').innerText = data.rssi + " dBm";
+                        document.getElementById('val-pacotes').innerText = `${data.validos} / ${data.invalidos}`;
+
+                        // Atualiza o gráfico com timestamp e novos valores
+                        let horaAtual = new Date().toLocaleTimeString();
+                        if (telemetryChart.data.labels.length > 20) {
+                            telemetryChart.data.labels.shift();
+                            telemetryChart.data.datasets[0].data.shift();
+                            telemetryChart.data.datasets[1].data.shift();
+                        }
+                        telemetryChart.data.labels.push(horaAtual);
+                        telemetryChart.data.datasets[0].data.push(data.temperatura);
+                        telemetryChart.data.datasets[1].data.push(data.tensao_bateria);
+                        telemetryChart.update();
+                    }
+                })
+                .catch(err => console.error("Erro ao buscar telemetria:", err));
+        }
+
+        // Atualiza a cada 2 segundos automaticamente
+        setInterval(atualizarDados, 2000);
+    </script>
+</body>
+</html>
