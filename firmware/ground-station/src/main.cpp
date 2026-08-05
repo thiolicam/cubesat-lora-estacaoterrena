@@ -92,8 +92,9 @@ void loop() {
                 float snr = LoRa.packetSnr();
 
                 // Imprime em formato JSON para o script Python e exibe as estatísticas de CRC
-                Serial.printf("{\"cubesat_id\": %d, \"contador\": %d, \"tensao_bateria\": %.2f, \"temperatura\": %.2f, \"rssi\": %d, \"snr\": %.1f, \"validos\": %lu, \"invalidos\": %lu}\n",
-                    pacote->cubesat_id, contador, tensao, temperatura, rssi, snr, pacotesValidos, pacotesInvalidos);
+                // Exemplo de adaptação no JSON enviado pela Estação Terrena via Serial USB:
+                Serial.printf("{\"cubesat_id\": %d, \"contador\": %d, \"tensao_bateria\": %.2f, \"temperatura\": %.2f, \"modo\": %d, \"erro\": %d, \"altitude\": %.1f, \"rssi\": %d, \"snr\": %.1f, \"validos\": %lu, \"invalidos\": %lu}\n",
+                    pacote->cubesat_id, contador, tensao, temperatura, modo, erro, altitude, rssi, snr, pacotesValidos, pacotesInvalidos);
             } else {
                 // CRC Inválido: Pacote corrompido no ar
                 pacotesInvalidos++;

@@ -1,0 +1,10 @@
+{
+    "cubesat_id": 1,
+    "contador": 363,
+    "tensao_bateria": 3.85,
+    "temperatura": 24.1,
+    "rssi": -90,
+    "snr": 8.3,
+    "validos": 363,
+    "invalidos": 2
+}

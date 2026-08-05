@@ -2,19 +2,19 @@ import serial
 import json
 import paho.mqtt.client as mqtt
 
-# Configurações da Porta Serial (ajuste a porta COM conforme o seu Gerenciador de Dispositivos, ex: "COM3")
+# Configurações da Porta Serial (ajuste conforme o seu Gerenciador de Dispositivos, ex: "COM3")
 PORTA_SERIAL = "COM3" 
 BAUD_RATE = 115200
 
-# Configurações do MQTT Broker local (Docker)
+# Configurações do MQTT Broker local
 BROKER = "localhost"
 PORTA = 1883
 TOPICO_MQTT = "cubesat/telemetry/parsed"
 
 print("--- Iniciando Ponte Serial -> MQTT ---")
 
-# Inicializa cliente MQTT
-cliente_mqtt = mqtt.Client()
+# Inicializa cliente MQTT compatível com Paho MQTT v2.0+
+cliente_mqtt = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
 cliente_mqtt.connect(BROKER, PORTA, 60)
 cliente_mqtt.loop_start()
 
@@ -25,7 +25,7 @@ try:
 
     while True:
         if serial_esp32.in_waiting > 0:
-            linha = serial_esp32.readline().decode('utf-8').strip()
+            linha = serial_esp32.readline().decode('utf-8', errors='ignore').strip()
             
             # Verifica se a linha recebida é um JSON válido vindo do ESP32
             if linha.startswith("{") and linha.endswith("}"):
@@ -43,4 +43,4 @@ except serial.SerialException as e:
 except KeyboardInterrupt:
     print("\nPonte Serial encerrada pelo utilizador.")
     cliente_mqtt.loop_stop()
-    
+    cliente_mqtt.disconnect()

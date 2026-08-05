@@ -1,22 +1,15 @@
-import os
-import sqlite3
-import json
-import sys
+import sqlite3 # módulo padrão do Python para bancos SQLite (já vem embutido)
+import json 
+import paho.mqtt.client as mqtt
 
-try:
-    import paho.mqtt.client as mqtt
-except ImportError as exc:
-    raise SystemExit(
-        "Erro: o pacote paho-mqtt não foi encontrado. Ative o ambiente virtual do projeto e execute: .\\.venv\\Scripts\\python.exe -m pip install -r requirements.txt"
-    ) from exc
+BROKER = "localhost"  # broker MQTT rodando na própria máquina
+PORTA = 1883  # porta padrão do protocolo MQTT
+TOPICO = "cubesat/telemetry/parsed" # tópico onde a telemetria decodificada é publicada
 
-BROKER = os.getenv("MQTT_BROKER", "localhost")
-PORTA = int(os.getenv("MQTT_PORTA", "1883"))
-TOPICO = os.getenv("MQTT_TOPICO", "cubesat/telemetry/parsed")
 
-def criar_tabela():
-    conexao = sqlite3.connect("estacao.db")
-    cursor = conexao.cursor()
+def criar_tabela(): #define funcao criar tabela 
+    conexao = sqlite3.connect("estacao.db") # cria uma conexão com o banco de dados estacao.db
+    cursor = conexao.cursor() # cria um cursor para executar comandos SQL
     cursor.execute(""" 
         CREATE TABLE IF NOT EXISTS pacotes (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -28,13 +21,14 @@ def criar_tabela():
             snr REAL,
             data_hora TEXT DEFAULT CURRENT_TIMESTAMP
         )
-    """)
-    conexao.commit()
-    conexao.close()
+    """) # define a estrutura da tabela "pacotes": nome e tipo de cada coluna (sem inserir dados ainda)
+    conexao.commit() #salva definitivamente as alteracoes no banco de dados
+    conexao.close() #fecha a conexao com o banco de dados
 
-def salvar_no_banco(telemetria):
-    conexao = sqlite3.connect("estacao.db")
-    cursor = conexao.cursor()
+
+def salvar_no_banco(telemetria): #define a funcao salvar_no_banco 
+    conexao = sqlite3.connect("estacao.db") # cria uma conexão com o banco de dados estacao.db
+    cursor = conexao.cursor() # cria um cursor para executar comandos SQL
     cursor.execute("""
         INSERT INTO pacotes (cubesat_id, contador, tensao_bateria, temperatura, rssi, snr)
         VALUES (?, ?, ?, ?, ?, ?)
@@ -45,29 +39,25 @@ def salvar_no_banco(telemetria):
         telemetria["temperatura"],
         telemetria["rssi"],
         telemetria["snr"],
-    ))
-    conexao.commit()
-    conexao.close()
+    )) # insere um novo registro na tabela "pacotes" com os dados de telemetria
+    conexao.commit() #salva definitivamente as alteracoes no banco de dados
+    conexao.close()  #fecha a conexao com o banco de dados
 
-def ao_receber_mensagem(client, userdata, message):
-    try:
-        payload = message.payload.decode("utf-8")
-        telemetria = json.loads(payload)
-        print("Recebido:", telemetria)
-        salvar_no_banco(telemetria)
-    except Exception as exc:
-        print(f"Erro ao processar mensagem: {exc}")
+
+def ao_receber_mensagem(client, userdata, message): # define uma funcao que será chamada sempre que receber uma mensagem 
+    payload = message.payload.decode() # decodifica o payload (em bytes) em uma string 
+    telemetria = json.loads(payload)   # converte a string JSON em um dicionário Python
+    print("Recebido:", telemetria) 
+    salvar_no_banco(telemetria) # insere uma telemetria recebida como nova linha na tabela
 
 if __name__ == "__main__":
-    criar_tabela()
-    cliente = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
-    cliente.on_message = ao_receber_mensagem
+    criar_tabela()  # garante que a tabela existe antes de começar a escutar
 
-    try:
-        cliente.connect(BROKER, PORTA, keepalive=60)
-        cliente.subscribe(TOPICO)
-        print(f"Aguardando mensagens MQTT em {BROKER}:{PORTA} no tópico {TOPICO}...")
-        cliente.loop_forever()
-    except Exception as exc:
-        print(f"Falha ao conectar no broker MQTT: {exc}")
-        sys.exit(1)
+    # cria o cliente MQTT (uso padrão da biblioteca Paho)
+    cliente = mqtt.Client()
+    cliente.on_message = ao_receber_mensagem  # registra o callback: chamado automaticamente a cada mensagem
+    cliente.connect(BROKER, PORTA)  # conecta no broker
+    cliente.subscribe(TOPICO)  # inscreve no tópico de telemetria
+
+    print("Escutando... (Ctrl+C para parar)")
+    cliente.loop_forever()  # fica rodando indefinidamente, esperando mensagens chegarem    
