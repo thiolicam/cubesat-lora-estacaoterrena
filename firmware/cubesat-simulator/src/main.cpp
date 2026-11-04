@@ -6,8 +6,9 @@
 #define LORA_RST   14
 #define LORA_DIO0  26
 
-// SPI da placa (pinagem da TTGO LoRa32; ajuste se a placa for outra).
-// Sem isto a biblioteca usa o SCK padrao do ESP32 (18), que colide com LORA_SS.
+// SPI da placa LION. A pinagem ainda precisa ser confirmada na placa com o firmware
+// firmware/teste-pinos, porque o historico do repositorio traz versoes diferentes.
+// Sem SPI.begin a biblioteca usa o SCK padrao do ESP32 (18), que colide com LORA_SS.
 #define LORA_SCK   5
 #define LORA_MISO  19
 #define LORA_MOSI  27
@@ -16,6 +17,16 @@
 #define SPREADING_FACTOR  7
 #define BANDWIDTH         125E3
 #define CODING_RATE       5
+#define POTENCIA_DBM      17
+
+// Telemetria simulada: uma "orbita" a cada 60 pacotes, alternando sol e eclipse
+#define PACOTES_POR_ORBITA    60
+#define TENSAO_BATERIA_BAIXA  3.55f
+
+// Valores definidos em docs/protocolo.md
+#define MODO_NORMAL         0
+#define MODO_ECLIPSE        1
+#define FLAG_BATERIA_BAIXA  0x01
 
 // Estrutura exata de 16 bytes:
 // Header(1) + Versao(1) + Tipo(1) + ID(1) + Contador(2) + Tensao(2) + Temperatura(2) + Corrente(2) + Modo(1) + Flags(1) + CRC(2) = 16 bytes
@@ -76,6 +87,11 @@ void montarPacote(uint8_t *buffer, uint8_t cubesatId, uint16_t contador,
   buffer[15] = crc & 0xFF;
 }
 
+// Variacao aleatoria entre -amplitude e +amplitude
+float ruido(float amplitude) {
+  return random(-100, 101) / 100.0f * amplitude;
+}
+
 void imprimirPacoteHex(uint8_t *buffer, uint8_t tamanho) {
   for (uint8_t i = 0; i < tamanho; i++) {
     if (buffer[i] < 0x10) Serial.print("0");
@@ -102,19 +118,24 @@ void setup() {
   LoRa.setSpreadingFactor(SPREADING_FACTOR);
   LoRa.setSignalBandwidth(BANDWIDTH);
   LoRa.setCodingRate4(CODING_RATE);
+  LoRa.setTxPower(POTENCIA_DBM);
 
   Serial.println("RFM95 do CubeSat inicializado com sucesso.");
+  Serial.printf("Frequencia: %.1f MHz | SF: %d | BW: %.0f kHz | CR: 4/%d | Potencia: %d dBm\n",
+                FREQUENCIA / 1E6, SPREADING_FACTOR, BANDWIDTH / 1E3, CODING_RATE, POTENCIA_DBM);
 }
 
 void loop() {
   uint8_t pacote[TAMANHO_PACOTE];
 
-  // Valores simulados para preencher a telemetria estruturada
-  float tensaoSimulada = 3.72;         // Volts
-  float temperaturaSimulada = 25.22;   // °C
-  float correnteSimulada = 1.25;       // Amperes (ou mA equivalentes)
-  uint8_t modoSimulado = 0;            // Ex: 0 = Modo Normal
-  uint8_t flagsSimuladas = 0x01;       // Ex: Sem erros críticos
+  // Telemetria simulada: mesmo modelo de server/simulador_estacao.py
+  float fase = sin(2 * PI * contadorPacote / PACOTES_POR_ORBITA);
+  bool noSol = fase >= 0;
+  float tensaoSimulada = 3.70f + 0.20f * fase + ruido(0.01f);          // Volts
+  float temperaturaSimulada = 5.0f + 25.0f * fase + ruido(0.5f);       // °C
+  float correnteSimulada = (noSol ? 0.90f * fase : -0.40f) + ruido(0.02f);  // Amperes
+  uint8_t modoSimulado = noSol ? MODO_NORMAL : MODO_ECLIPSE;
+  uint8_t flagsSimuladas = tensaoSimulada < TENSAO_BATERIA_BAIXA ? FLAG_BATERIA_BAIXA : 0;
 
   montarPacote(pacote, /*cubesatId=*/1, contadorPacote,
                tensaoSimulada, temperaturaSimulada, correnteSimulada,

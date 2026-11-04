@@ -22,6 +22,7 @@
 #define SPREADING_FACTOR  7
 #define BANDWIDTH         125E3
 #define CODING_RATE       5
+#define POTENCIA_DBM      17
 
 // =====================
 // Estrutura do Protocolo (16 bytes)
@@ -79,8 +80,11 @@ void inicializarLoRa()
     LoRa.setSpreadingFactor(SPREADING_FACTOR);
     LoRa.setSignalBandwidth(BANDWIDTH);
     LoRa.setCodingRate4(CODING_RATE);
+    LoRa.setTxPower(POTENCIA_DBM);
 
     Serial.println("RFM95 inicializado com sucesso.");
+    Serial.printf("Frequencia: %.1f MHz | SF: %d | BW: %.0f kHz | CR: 4/%d | Potencia: %d dBm\n",
+                  FREQUENCIA / 1E6, SPREADING_FACTOR, BANDWIDTH / 1E3, CODING_RATE, POTENCIA_DBM);
     Serial.println();
 }
 
