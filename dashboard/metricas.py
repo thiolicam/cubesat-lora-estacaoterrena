@@ -61,4 +61,70 @@ def calcular_enlace(linhas):
         "nao_chegaram": max(0, esperados - recebidos - corrompidos),
         "interrupcoes": interrupcoes,
         "taxa_recepcao": recebidos / esperados if esperados else None,
+        "rssi_medio": _media(linhas, "rssi"),
+        "snr_medio": _media(linhas, "snr"),
     }
+
+
+def _media(linhas, campo):
+    valores = [linha[campo] for linha in linhas if linha.get(campo) is not None]
+    return sum(valores) / len(valores) if valores else None
+
+
+def _agrupar(linhas, chave):
+    grupos = {}
+    for linha in linhas:
+        grupos.setdefault(chave(linha), []).append(linha)
+    return grupos
+
+
+def _origem(linha):
+    return (linha.get("receptor_id"), linha.get("frequencia_mhz"))
+
+
+def _ordem(valor):
+    """Permite ordenar chaves em que alguns valores são None, como em linhas antigas."""
+    return tuple((item is None, item or 0) for item in valor)
+
+
+def calcular_por_origem(linhas):
+    """Calcula uma linha de estatísticas por receptor e frequência.
+
+    Cada receptor tem o próprio contador de lacunas: o mesmo pacote chega a vários deles,
+    então misturá-los faria um receptor esconder as perdas do outro.
+    """
+    grupos = _agrupar(linhas, _origem)
+    return [
+        {"receptor_id": origem[0], "frequencia_mhz": origem[1], **calcular_enlace(grupos[origem])}
+        for origem in sorted(grupos, key=_ordem)
+    ]
+
+
+def calcular_agregado(linhas):
+    """Soma as estatísticas de cada origem; com um único receptor, é o próprio cálculo dele."""
+    por_origem = calcular_por_origem(linhas)
+    if len(por_origem) <= 1:
+        return calcular_enlace(linhas)
+    somas = {
+        campo: sum(item[campo] for item in por_origem)
+        for campo in ("esperados", "recebidos", "corrompidos", "nao_chegaram", "interrupcoes")
+    }
+    return {
+        **somas,
+        "taxa_recepcao": somas["recebidos"] / somas["esperados"] if somas["esperados"] else None,
+        "rssi_medio": _media(linhas, "rssi"),
+        "snr_medio": _media(linhas, "snr"),
+    }
+
+
+def calcular_por_hora(linhas):
+    """Estatísticas por hora (UTC), receptor e frequência, da hora mais recente para a mais antiga."""
+    def hora(linha):
+        return (linha.get("data_hora") or "")[:13]
+
+    grupos = _agrupar(linhas, hora)
+    resultado = []
+    for periodo in sorted(grupos, reverse=True):
+        for item in calcular_por_origem(grupos[periodo]):
+            resultado.append({"periodo": f"{periodo}:00:00", **item})
+    return resultado

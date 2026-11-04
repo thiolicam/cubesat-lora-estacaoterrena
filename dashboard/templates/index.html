@@ -34,7 +34,12 @@
   h2 { font-size: 13px; font-weight: 600; color: var(--texto-2); margin: 28px 0 10px; }
   .situacao { color: var(--texto-2); }
   .situacao .icone { font-weight: 700; margin-right: 4px; }
-  .filtros { display: flex; align-items: center; gap: 8px; margin: 18px 0 0; color: var(--texto-2); }
+  .filtros { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 18px 0 0; color: var(--texto-2); }
+  .filtros label:not(:first-child) { margin-left: 8px; }
+  .cabecalho-secao { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px 16px; margin: 28px 0 10px; }
+  .cabecalho-secao h2 { margin: 0; }
+  .cabecalho-secao label { color: var(--texto-2); margin-right: 6px; }
+  .estatisticas th:nth-child(-n+3), .estatisticas td:nth-child(-n+3) { text-align: left; }
   select {
     background: var(--superficie); color: var(--texto); border: 1px solid var(--borda);
     border-radius: 6px; padding: 5px 8px; font: inherit;
@@ -102,6 +107,10 @@
       <option value="1000">1.000 pacotes</option>
       <option value="5000">5.000 pacotes</option>
     </select>
+    <label for="filtro-receptor">Receptor</label>
+    <select id="filtro-receptor"><option value="">Todos</option></select>
+    <label for="filtro-frequencia">Frequência</label>
+    <select id="filtro-frequencia"><option value="">Todas</option></select>
   </div>
 
   <div class="aviso" id="aviso" hidden></div>
@@ -136,11 +145,35 @@
     <h2>Confiabilidade do enlace</h2>
     <section class="blocos" id="blocos"></section>
 
+    <p class="aviso" id="aviso-misturados" hidden>Os gráficos estão misturando vários receptores. Escolha um no filtro para ler cada medida.</p>
+
     <h2>Energia e temperatura</h2>
     <section class="grade" id="graficos-satelite"></section>
 
     <h2>Sinal de rádio</h2>
     <section class="grade" id="graficos-radio"></section>
+
+    <div class="cabecalho-secao">
+      <h2>Estatísticas por receptor</h2>
+      <div>
+        <label for="periodo">Agrupar</label>
+        <select id="periodo">
+          <option value="total">Histórico completo</option>
+          <option value="hora">Por hora</option>
+        </select>
+      </div>
+    </div>
+    <div class="cartao rolagem">
+      <table class="estatisticas">
+        <thead><tr>
+          <th scope="col">Período</th><th scope="col">Receptor</th><th scope="col">Frequência (MHz)</th>
+          <th scope="col">Recebidos</th><th scope="col">Esperados</th><th scope="col">Recepção</th>
+          <th scope="col">Corrompidos</th><th scope="col">Não chegaram</th>
+          <th scope="col">RSSI médio (dBm)</th><th scope="col">SNR médio (dB)</th>
+        </tr></thead>
+        <tbody id="estatisticas-corpo"></tbody>
+      </table>
+    </div>
 
     <details>
       <summary>Tabela de pacotes</summary>
@@ -398,6 +431,7 @@ function desenharBlocos(janela, total, ultimo) {
     bloco("Recebidos", numero(janela.recebidos), `de ${numero(janela.esperados)} esperados${interrupcoes}`),
     bloco("Corrompidos", numero(janela.corrompidos), "Descartados pelo CRC"),
     bloco("Não chegaram", numero(janela.nao_chegaram), "Lacunas no contador, sem os corrompidos"),
+    bloco("Sinal médio", janela.rssi_medio === null ? "–" : `${numero(janela.rssi_medio, 0)} dBm`, janela.snr_medio === null ? "SNR: –" : `SNR: ${numero(janela.snr_medio, 1)} dB`),
     bloco("Estado do CubeSat", `Modo ${ultimo.modo ?? "–"}`, `Flags: ${ultimo.flags === null ? "–" : "0x" + ultimo.flags.toString(16).toUpperCase().padStart(2, "0")}`),
   );
 }
@@ -533,23 +567,88 @@ el("form-intervalo").addEventListener("submit", (e) => {
   enviarComando(2, Number(el("intervalo").value));
 });
 
+const ATUALIZAR_ESTATISTICAS_MS = 10000;
+let ultimaEstatistica = 0;
+
+function parametrosDeFiltro() {
+  const parametros = new URLSearchParams();
+  if (el("filtro-receptor").value) parametros.set("receptor", el("filtro-receptor").value);
+  if (el("filtro-frequencia").value) parametros.set("frequencia", el("filtro-frequencia").value);
+  return parametros;
+}
+
+function preencherFiltro(select, valores, rotuloTodos, rotulo) {
+  const selecionado = select.value;
+  const todos = new Option(rotuloTodos, "");
+  select.replaceChildren(todos, ...valores.map((v) => new Option(rotulo(v), String(v))));
+  // Mantém a escolha mesmo que ela ainda não exista nas opções
+  if (selecionado && !valores.map(String).includes(selecionado)) {
+    select.appendChild(new Option(selecionado, selecionado));
+  }
+  select.value = selecionado;
+}
+
+async function atualizarEstatisticas() {
+  ultimaEstatistica = Date.now();
+  const parametros = parametrosDeFiltro();
+  const periodo = el("periodo").value;
+  parametros.set("periodo", periodo);
+  try {
+    const resposta = await fetch(`/api/estatisticas?${parametros}`);
+    if (!resposta.ok) return;
+    const linhas = await resposta.json();
+    el("estatisticas-corpo").replaceChildren(...linhas.map((e) => {
+      const tr = document.createElement("tr");
+      const momento = periodo === "hora" ? new Date(instante(e.periodo)) : null;
+      [
+        momento ? momento.toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }) : "Todo o histórico",
+        e.receptor_id ?? "–",
+        formatar(e.frequencia_mhz, 1),
+        numero(e.recebidos),
+        numero(e.esperados),
+        porcentagem(e.taxa_recepcao),
+        numero(e.corrompidos),
+        numero(e.nao_chegaram),
+        formatar(e.rssi_medio, 0),
+        formatar(e.snr_medio, 1),
+      ].forEach((texto) => {
+        const td = document.createElement("td");
+        td.textContent = texto;
+        tr.appendChild(td);
+      });
+      return tr;
+    }));
+  } catch (erro) {
+    // A falha de conexão já é avisada pela atualização principal
+  }
+}
+
 let requisicaoAtual = 0;
 
 async function atualizar() {
   const numeroRequisicao = ++requisicaoAtual;
   try {
-    const resposta = await fetch(`/api/painel?limite=${el("janela").value}`);
+    const parametros = parametrosDeFiltro();
+    parametros.set("limite", el("janela").value);
+    const resposta = await fetch(`/api/painel?${parametros}`);
     if (!resposta.ok) throw new Error(`HTTP ${resposta.status}`);
     const dados = await resposta.json();
     if (numeroRequisicao !== requisicaoAtual) return; // chegou uma janela mais nova
 
     document.body.classList.remove("desatualizado");
     desenharComandos(dados.comandos);
+    preencherFiltro(el("filtro-receptor"), dados.opcoes.receptores, "Todos", (v) => `Receptor ${v}`);
+    preencherFiltro(el("filtro-frequencia"), dados.opcoes.frequencias, "Todas", (v) => `${numero(v, 1)} MHz`);
     const aviso = el("aviso");
     const temDados = dados.pacotes.length > 0;
+    const filtrado = el("filtro-receptor").value || el("filtro-frequencia").value;
+    el("aviso-misturados").hidden = el("filtro-receptor").value !== "" || new Set(dados.pacotes.map((p) => p.receptor_id)).size <= 1;
     el("conteudo").hidden = !temDados;
     aviso.hidden = temDados;
-    aviso.textContent = "Nenhum pacote gravado ainda. Inicie a ponte serial ou rode python simular.py.";
+    aviso.textContent = filtrado
+      ? "Nenhum pacote para este filtro."
+      : "Nenhum pacote gravado ainda. Inicie a ponte serial ou rode python simular.py.";
+    if (temDados && Date.now() - ultimaEstatistica >= ATUALIZAR_ESTATISTICAS_MS) atualizarEstatisticas();
 
     if (!temDados) { desenharSituacao(null); return; }
     const ultimo = dados.pacotes.at(-1);
@@ -579,6 +678,9 @@ async function cicloDeAtualizacao() {
 }
 
 el("janela").addEventListener("change", atualizar);
+for (const id of ["filtro-receptor", "filtro-frequencia", "periodo"]) {
+  el(id).addEventListener("change", () => { atualizar(); atualizarEstatisticas(); });
+}
 cicloDeAtualizacao();
 </script>
 </body>

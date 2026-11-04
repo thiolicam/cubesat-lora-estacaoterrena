@@ -29,8 +29,8 @@ from protocolo import (
 )
 
 PACOTES_POR_ORBITA = 60
-FREQUENCIA_MHZ = 915.0
-RECEPTOR_ID = 1
+# Com vários receptores: os dois primeiros simulam diversidade de antenas, e o terceiro, de frequência
+FREQUENCIAS_MHZ = (915.0, 915.0, 923.3)
 CUBESAT_ID = 1
 ESPERA_ABERTURA_SERIAL = 0.5  # segundos
 
@@ -68,6 +68,16 @@ def formatar(linhas):
     return "".join(linha + "\r\n" for linha in linhas).encode("utf-8")
 
 
+class Receptor:
+    """Cada estação terrena tem os próprios contadores."""
+
+    def __init__(self, identificador):
+        self.identificador = identificador
+        self.frequencia_mhz = FREQUENCIAS_MHZ[identificador - 1]
+        self.validos = 0
+        self.invalidos = 0
+
+
 class Simulacao:
     def __init__(self, enviar, args):
         self.enviar = enviar
@@ -77,8 +87,17 @@ class Simulacao:
         self.periodico = True
         self.contador = 0
         self.proximo_envio = time.monotonic()
-        self.transmitidos = self.validos = self.invalidos = self.perdidos = 0
+        self.receptores = [Receptor(i + 1) for i in range(args.receptores)]
+        self.transmitidos = self.perdidos = 0
         self.pendente = b""
+
+    @property
+    def validos(self):
+        return sum(r.validos for r in self.receptores)
+
+    @property
+    def invalidos(self):
+        return sum(r.invalidos for r in self.receptores)
 
     def enlace(self, pacote):
         """Aplica perda e corrupção; retorna o que chegou, ou None se nada chegou."""
@@ -96,44 +115,53 @@ class Simulacao:
         pacote = montar_pacote(CUBESAT_ID, self.contador % 65536, **gerar_telemetria(self.contador, self.rng))
         self.contador += 1
         self.transmitidos += 1
+        # Cada receptor sofre as próprias perdas: é o que torna a diversidade útil
+        for receptor in self.receptores:
+            self.receber_telemetria(receptor, pacote)
+
+    def receber_telemetria(self, receptor, pacote):
         recebido = self.enlace(pacote)
         if recebido is None:
             return
         try:
             t = decodificar_pacote(recebido)
         except ValueError:
-            self.invalidos += 1
+            receptor.invalidos += 1
             self.enviar(formatar(["ALERTA: Pacote corrompido (CRC Inválido). Descartado! ❌"]))
             return
-        self.validos += 1
+        receptor.validos += 1
         rssi, snr = self.medir_sinal()
         self.enviar(formatar([
             "========================================",
-            f"Pacote #{t['contador']} Recebido (Válidos: {self.validos} | Inválidos: {self.invalidos})",
+            f"Pacote #{t['contador']} Recebido (Válidos: {receptor.validos} | Inválidos: {receptor.invalidos})",
             "Status       : Aprovado ✅",
             "========================================",
             f'{{"cubesat_id": {t["cubesat_id"]}, "tipo": {t["tipo"]}, "contador": {t["contador"]}, '
             f'"tensao_bateria": {t["tensao_bateria"]:.2f}, "corrente": {t["corrente"]:.2f}, '
             f'"temperatura": {t["temperatura"]:.2f}, "modo": {t["modo"]}, "flags": {t["flags"]}, '
-            f'"rssi": {rssi}, "snr": {snr:.1f}, "validos": {self.validos}, "invalidos": {self.invalidos}, '
-            f'"frequencia_mhz": {FREQUENCIA_MHZ:.1f}, "receptor_id": {RECEPTOR_ID}, "raw": "{recebido.hex().upper()}"}}',
+            f'"rssi": {rssi}, "snr": {snr:.1f}, "validos": {receptor.validos}, "invalidos": {receptor.invalidos}, '
+            f'"frequencia_mhz": {receptor.frequencia_mhz:.1f}, "receptor_id": {receptor.identificador}, '
+            f'"raw": "{recebido.hex().upper()}"}}',
         ]))
 
     def responder_ack(self, comando, status):
+        # Os comandos e as respostas passam só pelo primeiro receptor
+        receptor = self.receptores[0]
         recebido = self.enlace(montar_ack(comando["cubesat_id"], comando["comando_id"], comando["codigo"], status))
         if recebido is None:
             return
         try:
             ack = decodificar_ack(recebido)
         except ValueError:
-            self.invalidos += 1
+            receptor.invalidos += 1
             self.enviar(formatar(["ALERTA: ACK corrompido. Descartado! ❌"]))
             return
         rssi, snr = self.medir_sinal()
         self.enviar(formatar([
             f'{{"cubesat_id": {ack["cubesat_id"]}, "tipo": {TIPO_ACK}, "comando_id": {ack["comando_id"]}, '
             f'"codigo": {ack["codigo"]}, "status": {ack["status"]}, "rssi": {rssi}, "snr": {snr:.1f}, '
-            f'"frequencia_mhz": {FREQUENCIA_MHZ:.1f}, "receptor_id": {RECEPTOR_ID}, "raw": "{recebido.hex().upper()}"}}',
+            f'"frequencia_mhz": {receptor.frequencia_mhz:.1f}, "receptor_id": {receptor.identificador}, '
+            f'"raw": "{recebido.hex().upper()}"}}',
         ]))
 
     def executar_comando(self, comando):
@@ -205,6 +233,8 @@ def main():
     parser.add_argument("--corrupcao", type=float, default=0.05, help="fração de pacotes corrompidos (padrão: 0.05)")
     parser.add_argument("--pacotes", type=int, default=None, help="encerra após N pacotes (padrão: sem limite)")
     parser.add_argument("--semente", type=int, default=None, help="semente aleatória, para repetir uma execução")
+    parser.add_argument("--receptores", type=int, default=1, choices=range(1, len(FREQUENCIAS_MHZ) + 1),
+                        help="quantos receptores simular, para diversidade (padrão: 1)")
     args = parser.parse_args()
 
     with socket.create_server(("127.0.0.1", args.porta)) as servidor:

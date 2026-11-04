@@ -3,7 +3,7 @@ import os
 import sys
 from flask import Flask, jsonify, render_template, request
 
-from metricas import calcular_enlace
+from metricas import calcular_agregado, calcular_por_hora, calcular_por_origem
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'server'))
 import banco
@@ -32,16 +32,42 @@ def conectar_db():
     return conexao
 
 
-def buscar_pacotes(limite=None):
+def buscar_pacotes(limite=None, receptor=None, frequencia=None):
     """Retorna os pacotes mais recentes em ordem cronológica; sem limite, retorna todos."""
+    condicoes, parametros = [], []
+    if receptor is not None:
+        condicoes.append("receptor_id = ?")
+        parametros.append(receptor)
+    if frequencia is not None:
+        condicoes.append("frequencia_mhz = ?")
+        parametros.append(frequencia)
+    onde = f"WHERE {' AND '.join(condicoes)}" if condicoes else ""
+    consulta = f"SELECT {COLUNAS} FROM pacotes {onde} ORDER BY id DESC"
+    if limite is not None:
+        consulta += " LIMIT ?"
+        parametros.append(limite)
     conexao = conectar_db()
-    consulta = f"SELECT {COLUNAS} FROM pacotes ORDER BY id DESC"
-    if limite is None:
-        linhas = conexao.execute(consulta).fetchall()
-    else:
-        linhas = conexao.execute(consulta + " LIMIT ?", (limite,)).fetchall()
+    linhas = conexao.execute(consulta, parametros).fetchall()
     conexao.close()
     return [dict(linha) for linha in reversed(linhas)]
+
+
+def filtros_da_requisicao():
+    """Filtro ausente ou inválido vira None, que significa todos."""
+    return {
+        "receptor": request.args.get("receptor", type=int),
+        "frequencia": request.args.get("frequencia", type=float),
+    }
+
+
+def buscar_opcoes_de_filtro():
+    conexao = conectar_db()
+    receptores = conexao.execute(
+        "SELECT DISTINCT receptor_id FROM pacotes WHERE receptor_id IS NOT NULL ORDER BY receptor_id").fetchall()
+    frequencias = conexao.execute(
+        "SELECT DISTINCT frequencia_mhz FROM pacotes WHERE frequencia_mhz IS NOT NULL ORDER BY frequencia_mhz").fetchall()
+    conexao.close()
+    return {"receptores": [l[0] for l in receptores], "frequencias": [l[0] for l in frequencias]}
 
 
 # ==========================================
@@ -88,13 +114,24 @@ def api_painel():
     """Tudo o que a página precisa em uma consulta, para que os números sempre concordem."""
     limite = request.args.get("limite", JANELA_PADRAO, type=int)
     limite = max(1, min(limite, JANELA_MAXIMA))
-    pacotes = buscar_pacotes(limite)
+    filtros = filtros_da_requisicao()
+    pacotes = buscar_pacotes(limite, **filtros)
     return jsonify({
         "pacotes": pacotes,
-        "enlace_janela": calcular_enlace(pacotes),
-        "enlace_total": calcular_enlace(buscar_pacotes()),
+        "enlace_janela": calcular_agregado(pacotes),
+        "enlace_total": calcular_agregado(buscar_pacotes(**filtros)),
         "comandos": banco.listar_comandos(DB_PATH),
+        "opcoes": buscar_opcoes_de_filtro(),
     })
+
+
+@app.route("/api/estatisticas", methods=["GET"])
+def api_estatisticas():
+    """Estatísticas históricas por receptor e frequência, no total ou hora a hora."""
+    pacotes = buscar_pacotes(**filtros_da_requisicao())
+    if request.args.get("periodo") == "hora":
+        return jsonify(calcular_por_hora(pacotes))
+    return jsonify(calcular_por_origem(pacotes))
 
 
 @app.route("/api/comandos", methods=["GET"])
