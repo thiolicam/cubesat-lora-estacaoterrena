@@ -121,9 +121,9 @@ void loop()
 
                 // Extração e Conversão de Endianness e Escalas corretas
                 uint16_t contador = ntohs(pacote.contador);
-                float tensao = (float)ntohs(pacote.tensao) / 100.0f;
-                float temperatura = (float)ntohs(pacote.temperatura) / 100.0f;
-                float corrente = (float)ntohs(pacote.corrente) / 100.0f; // Assumindo ajuste de escala por 100 igual à tensão/temperatura
+                float tensao = (float)(int16_t)ntohs(pacote.tensao) / 100.0f;
+                float temperatura = (float)(int16_t)ntohs(pacote.temperatura) / 100.0f;
+                float corrente = (float)(int16_t)ntohs(pacote.corrente) / 100.0f; // Assumindo ajuste de escala por 100 igual à tensão/temperatura
                 uint8_t modo = pacote.modo_de_operacao;
                 uint8_t flags = pacote.flag_erros;
                 
