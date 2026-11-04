@@ -123,7 +123,7 @@ class TestMqtt(unittest.TestCase):
 
     def test_ponte_informa_a_publicacao(self):
         self.assertIn("Conectado ao Broker", self.saida_ponte)
-        self.assertEqual(self.saida_ponte.count("Telemetria publicada"), self.validos)
+        self.assertEqual(len(re.findall(r"Telemetria do pacote \d+ publicada", self.saida_ponte)), self.validos)
 
     def test_pacote_bruto_e_decodificado_descrevem_o_mesmo_dado(self):
         for bruto, texto in zip(self.conteudos("cubesat/telemetry/raw"), self.conteudos("cubesat/telemetry/parsed")):

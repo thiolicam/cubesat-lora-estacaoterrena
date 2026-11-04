@@ -6,12 +6,13 @@ import threading
 import paho.mqtt.client as mqtt
 import serial
 
-from banco import preparar_banco
+import banco
 
 # 1. Porta serial da Estação Terrena
 # Ex: "COM3" no Windows, "/dev/ttyUSB0" no Linux ou "socket://127.0.0.1:7000" no simulador
 PORTA_SERIAL = os.environ.get("ESTACAO_SERIAL", "COM3")
 BAUD_RATE = 115200
+ESPERA_LEITURA_S = 0.2  # intervalo máximo para verificar se há comando na fila
 
 # 2. Broker MQTT local e tópicos definidos em docs/protocolo.md
 BROKER = "localhost"
@@ -20,16 +21,42 @@ TOPICO_BRUTO = "cubesat/telemetry/raw"
 TOPICO_DECODIFICADO = "cubesat/telemetry/parsed"
 TOPICO_ENLACE = "groundstation/link/stats"
 TOPICO_STATUS = "groundstation/status"
+TOPICO_COMANDO = "cubesat/command/send"
+TOPICO_ACK = "cubesat/command/ack"
 ESPERA_CONEXAO_MQTT = 2  # segundos
 
 # 3. Banco de dados SQLite unificado (estacao.db na raiz do projeto)
 DB_PATH = os.environ.get("ESTACAO_DB", os.path.join(os.path.dirname(__file__), '..', 'estacao.db'))
 
+# 4. Comandos: quanto esperar pelo ACK e por quanto tempo um pendente ainda pode ser enviado
+ESPERA_ACK_S = int(os.environ.get("ESTACAO_ESPERA_ACK", "10"))
+VALIDADE_PENDENTE_S = 30
+
+TIPO_ACK = 3
 CAMPOS_ENLACE = ("receptor_id", "frequencia_mhz", "rssi", "snr", "validos", "invalidos")
 CAMPOS_BANCO = (
     "cubesat_id", "tipo", "contador", "tensao_bateria", "corrente", "temperatura", "modo",
     "flags", "rssi", "snr", "validos", "invalidos", "frequencia_mhz", "receptor_id",
 )
+
+
+class LeitorDeLinhas:
+    """Só entrega linhas completas.
+
+    O readline devolve o que tiver quando o tempo de espera acaba; sem guardar esse pedaço,
+    uma linha que chegasse nesse instante seria dividida, e o pacote, perdido.
+    """
+
+    def __init__(self, porta):
+        self.porta = porta
+        self.parcial = b""
+
+    def ler(self):
+        self.parcial += self.porta.readline()
+        if not self.parcial.endswith(b"\n"):
+            return None
+        linha, self.parcial = self.parcial, b""
+        return linha.decode('utf-8', errors='ignore').strip()
 
 
 def mensagem_status(estado):
@@ -65,12 +92,12 @@ def salvar_no_banco(dados):
         print(f"❌ [Erro SQLite] Falha ao inserir o pacote: {e}")
 
 
-def publicar_telemetria(cliente, dados):
-    resultados = [cliente.publish(topico, conteudo) for topico, conteudo in mensagens_telemetria(dados)]
+def publicar(cliente, mensagens, descricao):
+    resultados = [cliente.publish(topico, conteudo) for topico, conteudo in mensagens]
     if all(r.rc == mqtt.MQTT_ERR_SUCCESS for r in resultados):
-        print(f"🔄 [MQTT] Telemetria publicada: pacote {dados.get('contador')}")
+        print(f"🔄 [MQTT] {descricao} publicada")
     else:
-        print("⚠️ [MQTT] Pacote não publicado: broker indisponível.")
+        print(f"⚠️ [MQTT] {descricao} não publicada: broker indisponível.")
 
 
 def criar_cliente_mqtt():
@@ -106,6 +133,18 @@ def encerrar_cliente_mqtt(cliente):
     cliente.loop_stop()
 
 
+def processar_ack(cliente, dados):
+    encontrado = banco.registrar_ack(
+        DB_PATH, dados.get("comando_id"), dados.get("status"),
+        dados.get("rssi"), dados.get("snr"), dados.get("receptor_id"),
+    )
+    if encontrado:
+        print(f"📨 ACK do comando {dados.get('comando_id')}: status {dados.get('status')}")
+    else:
+        print(f"⚠️ ACK ignorado: nenhum comando {dados.get('comando_id')} aguardava resposta.")
+    publicar(cliente, [(TOPICO_ACK, json.dumps(dados))], "Confirmação de comando")
+
+
 def processar_linha(cliente, linha):
     # A estação imprime uma linha JSON por pacote válido; as demais são para leitura humana
     if not (linha.startswith("{") and linha.endswith("}")):
@@ -115,21 +154,43 @@ def processar_linha(cliente, linha):
     except json.JSONDecodeError:
         print(f"⚠️ Aviso: Linha recebida não é um JSON válido: {linha}")
         return
+    if dados.get("tipo") == TIPO_ACK:
+        processar_ack(cliente, dados)
+        return
     salvar_no_banco(dados)
-    publicar_telemetria(cliente, dados)
+    publicar(cliente, mensagens_telemetria(dados), f"Telemetria do pacote {dados.get('contador')}")
+
+
+def atender_comandos(cliente, porta):
+    """Transmite o próximo comando da fila, se o rádio estiver livre."""
+    banco.expirar_comandos(DB_PATH, ESPERA_ACK_S, VALIDADE_PENDENTE_S)
+    comando = banco.proximo_comando(DB_PATH)
+    if comando is None:
+        return
+    comando_id = comando["id"] % 65536
+    porta.write(f"CMD {comando_id} {comando['cubesat_id']} {comando['codigo']} {comando['parametro']}\n".encode())
+    banco.marcar_enviado(DB_PATH, comando["id"])
+    print(f"📤 Comando {comando_id} enviado à estação: código {comando['codigo']}, parâmetro {comando['parametro']}")
+    conteudo = json.dumps({
+        "comando_id": comando_id, "cubesat_id": comando["cubesat_id"],
+        "codigo": comando["codigo"], "parametro": comando["parametro"],
+    })
+    publicar(cliente, [(TOPICO_COMANDO, conteudo)], "Envio de comando")
 
 
 def main():
-    preparar_banco(DB_PATH)
+    banco.preparar_banco(DB_PATH)
     print("--- Iniciando Ponte Serial -> MQTT & SQLite ---")
     cliente = criar_cliente_mqtt()
     try:
-        serial_esp32 = serial.serial_for_url(PORTA_SERIAL, BAUD_RATE, timeout=1)
+        serial_esp32 = serial.serial_for_url(PORTA_SERIAL, BAUD_RATE, timeout=ESPERA_LEITURA_S)
         print(f"✅ Conectado à porta serial {PORTA_SERIAL}. Aguardando pacotes...")
+        leitor = LeitorDeLinhas(serial_esp32)
         while True:
-            # readline espera até o timeout, então o laço não ocupa a CPU sem necessidade
-            linha = serial_esp32.readline().decode('utf-8', errors='ignore').strip()
-            processar_linha(cliente, linha)
+            linha = leitor.ler()
+            if linha:
+                processar_linha(cliente, linha)
+            atender_comandos(cliente, serial_esp32)
     except serial.SerialException as e:
         print(f"❌ Erro na porta serial {PORTA_SERIAL}: {e}. Verifique se a placa está conectada "
               "e se o Monitor Serial do PlatformIO está fechado.")

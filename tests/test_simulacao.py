@@ -84,8 +84,8 @@ class TestSimulacao(unittest.TestCase):
         self.assertIsInstance(self.linhas[0]["rssi"], int)
 
     def test_ponte_nao_afirma_publicar_sem_broker(self):
-        self.assertNotIn("Telemetria publicada", self.saida_ponte)
-        self.assertIn("não publicado", self.saida_ponte)
+        self.assertNotRegex(self.saida_ponte, r"pacote \d+ publicada")
+        self.assertIn("não publicada", self.saida_ponte)
 
     def test_metadados_de_recepcao_chegam_ao_banco(self):
         ultima = self.linhas[-1]

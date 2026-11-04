@@ -62,6 +62,22 @@
   }
   .dica strong { display: block; font-size: 14px; }
   .dica span { color: var(--texto-2); font-size: 12px; }
+  .comandos { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; margin-bottom: 8px; }
+  .comandos form { display: flex; align-items: center; gap: 6px; }
+  .comandos label { color: var(--texto-2); }
+  .comandos input {
+    width: 76px; background: var(--pagina); color: var(--texto); border: 1px solid var(--borda);
+    border-radius: 6px; padding: 5px 8px; font: inherit;
+  }
+  button {
+    background: var(--eixo); color: var(--texto); border: 1px solid var(--borda);
+    border-radius: 6px; padding: 5px 10px; font: inherit; cursor: pointer;
+  }
+  button:hover { background: var(--grade); }
+  button:disabled { opacity: .55; cursor: default; }
+  .estado-icone { font-weight: 700; margin-right: 4px; }
+  #comandos-corpo td:nth-child(4) { text-align: left; }
+  section.cartao th:nth-child(4) { text-align: left; }
   details { margin-top: 28px; }
   summary { cursor: pointer; color: var(--texto-2); font-weight: 600; font-size: 13px; }
   .rolagem { overflow-x: auto; margin-top: 10px; }
@@ -89,6 +105,32 @@
   </div>
 
   <div class="aviso" id="aviso" hidden></div>
+
+  <h2>Comandos para o CubeSat</h2>
+  <section class="cartao">
+    <div class="comandos">
+      <button type="button" id="cmd-telemetria">Solicitar telemetria</button>
+      <button type="button" id="cmd-ativar">Ativar envio periódico</button>
+      <button type="button" id="cmd-desativar">Desativar envio periódico</button>
+      <form id="form-intervalo">
+        <label for="intervalo">Intervalo (s)</label>
+        <input id="intervalo" type="number" min="1" max="3600" value="2" required>
+        <button type="submit">Alterar</button>
+      </form>
+      <button type="button" id="cmd-reiniciar">Reiniciar sistema simulado</button>
+    </div>
+    <p class="nota" id="comando-erro" role="alert" hidden></p>
+    <div class="rolagem">
+      <table>
+        <thead><tr>
+          <th scope="col">Comando</th><th scope="col">Parâmetro</th><th scope="col">Criado às</th>
+          <th scope="col">Situação</th><th scope="col">RSSI do ACK (dBm)</th>
+        </tr></thead>
+        <tbody id="comandos-corpo"></tbody>
+      </table>
+    </div>
+    <p class="nota" id="comandos-vazio">Nenhum comando enviado ainda.</p>
+  </section>
 
   <div id="conteudo" hidden>
     <h2>Confiabilidade do enlace</h2>
@@ -416,6 +458,81 @@ function desenharSituacao(ultimoMs) {
   situacao.replaceChildren(icone, texto);
 }
 
+const NOMES_COMANDO = {
+  1: "Solicitar telemetria",
+  2: "Alterar intervalo",
+  3: "Envio periódico",
+  4: "Reiniciar sistema simulado",
+};
+const ESTADOS_COMANDO = {
+  pendente: { icone: "…", cor: "--texto-3", texto: "Na fila" },
+  enviado: { icone: "…", cor: "--texto-3", texto: "Enviado, aguardando ACK" },
+  confirmado: { icone: "✓", cor: "--bom", texto: "Confirmado" },
+  rejeitado: { icone: "✕", cor: "--critico", texto: "Rejeitado pelo CubeSat" },
+  sem_resposta: { icone: "⚠", cor: "--alerta", texto: "Sem resposta" },
+  expirado: { icone: "⚠", cor: "--alerta", texto: "Expirado: a ponte serial não transmitiu" },
+};
+
+function parametroDoComando(c) {
+  if (c.codigo === 2) return `${numero(c.parametro)} s`;
+  if (c.codigo === 3) return c.parametro === 1 ? "Ativar" : "Desativar";
+  return "–";
+}
+
+function desenharComandos(comandos) {
+  el("comandos-vazio").hidden = comandos.length > 0;
+  el("comandos-corpo").replaceChildren(...comandos.map((c) => {
+    const tr = document.createElement("tr");
+    const estado = ESTADOS_COMANDO[c.estado] || { icone: "?", cor: "--texto-3", texto: c.estado };
+    const situacao = document.createElement("td");
+    const icone = document.createElement("span");
+    icone.className = "estado-icone";
+    icone.style.color = `var(${estado.cor})`;
+    icone.textContent = estado.icone;
+    situacao.append(icone, estado.texto);
+    const celula = (texto) => { const td = document.createElement("td"); td.textContent = texto; return td; };
+    tr.append(
+      celula(NOMES_COMANDO[c.codigo] || `Código ${c.codigo}`),
+      celula(parametroDoComando(c)),
+      celula(hora(instante(c.criado_em))),
+      situacao,
+      celula(formatar(c.ack_rssi, 0)),
+    );
+    return tr;
+  }));
+}
+
+async function enviarComando(codigo, parametro = 0) {
+  const erro = el("comando-erro");
+  erro.hidden = true;
+  try {
+    const resposta = await fetch("/api/comandos", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ codigo, parametro }),
+    });
+    if (!resposta.ok) {
+      const corpo = await resposta.json().catch(() => ({}));
+      throw new Error(corpo.erro || `HTTP ${resposta.status}`);
+    }
+    atualizar();
+  } catch (e) {
+    erro.textContent = `Comando não registrado: ${e.message}`;
+    erro.hidden = false;
+  }
+}
+
+el("cmd-telemetria").addEventListener("click", () => enviarComando(1));
+el("cmd-ativar").addEventListener("click", () => enviarComando(3, 1));
+el("cmd-desativar").addEventListener("click", () => enviarComando(3, 0));
+el("cmd-reiniciar").addEventListener("click", () => {
+  if (confirm("Reiniciar o sistema simulado? O contador de pacotes voltará a zero.")) enviarComando(4);
+});
+el("form-intervalo").addEventListener("submit", (e) => {
+  e.preventDefault();
+  enviarComando(2, Number(el("intervalo").value));
+});
+
 let requisicaoAtual = 0;
 
 async function atualizar() {
@@ -427,6 +544,7 @@ async function atualizar() {
     if (numeroRequisicao !== requisicaoAtual) return; // chegou uma janela mais nova
 
     document.body.classList.remove("desatualizado");
+    desenharComandos(dados.comandos);
     const aviso = el("aviso");
     const temDados = dados.pacotes.length > 0;
     el("conteudo").hidden = !temDados;

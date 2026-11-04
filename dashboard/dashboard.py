@@ -6,7 +6,11 @@ from flask import Flask, jsonify, render_template, request
 from metricas import calcular_enlace
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'server'))
+import banco
 from banco import preparar_banco
+from protocolo import CMD_ENVIO_PERIODICO, CMD_ALTERAR_INTERVALO, STATUS_OK, status_do_comando
+
+CUBESAT_ID = 1  # a especificação prevê um CubeSat; os comandos vão sempre para ele
 
 app = Flask(__name__)
 
@@ -89,7 +93,31 @@ def api_painel():
         "pacotes": pacotes,
         "enlace_janela": calcular_enlace(pacotes),
         "enlace_total": calcular_enlace(buscar_pacotes()),
+        "comandos": banco.listar_comandos(DB_PATH),
     })
+
+
+@app.route("/api/comandos", methods=["GET"])
+def api_listar_comandos():
+    preparar_banco(DB_PATH)
+    return jsonify(banco.listar_comandos(DB_PATH, limite=50))
+
+
+@app.route("/api/comandos", methods=["POST"])
+def api_criar_comando():
+    """Coloca o comando na fila. Exigir JSON impede que outro site o dispare por formulário."""
+    dados = request.get_json(silent=True)
+    if not isinstance(dados, dict):
+        return jsonify({"erro": "Envie um JSON com codigo e parametro"}), 400
+    codigo, parametro = dados.get("codigo"), dados.get("parametro", 0)
+    if type(codigo) is not int or type(parametro) is not int or not 0 <= parametro <= 65535:
+        return jsonify({"erro": "codigo e parametro precisam ser inteiros válidos"}), 400
+    if codigo not in (CMD_ALTERAR_INTERVALO, CMD_ENVIO_PERIODICO) and parametro != 0:
+        return jsonify({"erro": "Este comando não usa parâmetro"}), 400
+    if status_do_comando(codigo, parametro) != STATUS_OK:
+        return jsonify({"erro": "Comando desconhecido ou parâmetro fora do limite"}), 400
+    preparar_banco(DB_PATH)
+    return jsonify({"id": banco.registrar_comando(DB_PATH, CUBESAT_ID, codigo, parametro)}), 201
 
 
 # ==========================================

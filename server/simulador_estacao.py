@@ -1,31 +1,50 @@
-"""Simula a estacao terrena: entrega pela rede o mesmo texto que o ESP32 envia pela serial.
+"""Simula a estação terrena e o CubeSat: conversa pela rede como o ESP32 conversa pela serial.
 
-A ponte serial conecta com ESTACAO_SERIAL=socket://127.0.0.1:7000 e nao percebe a
-diferenca. Cada pacote passa pelo protocolo real de 16 bytes, entao perda e corrupcao
-seguem o mesmo caminho do firmware (firmware/ground-station/src/main.cpp).
+A ponte serial conecta com ESTACAO_SERIAL=socket://127.0.0.1:7000 e não percebe a diferença.
+Telemetria, comandos e ACKs passam pelo protocolo real, então perda e corrupção seguem o mesmo
+caminho dos firmwares (firmware/ground-station e firmware/cubesat-simulator).
 """
 import argparse
 import math
 import random
+import re
+import select
 import socket
 import time
 
-from protocolo import decodificar_pacote, montar_pacote
+from protocolo import (
+    CMD_ALTERAR_INTERVALO,
+    CMD_ENVIO_PERIODICO,
+    CMD_REINICIAR,
+    CMD_SOLICITAR_TELEMETRIA,
+    STATUS_OK,
+    TIPO_ACK,
+    decodificar_ack,
+    decodificar_comando,
+    decodificar_pacote,
+    montar_ack,
+    montar_comando,
+    montar_pacote,
+    status_do_comando,
+)
 
 PACOTES_POR_ORBITA = 60
 FREQUENCIA_MHZ = 915.0
 RECEPTOR_ID = 1
+CUBESAT_ID = 1
 ESPERA_ABERTURA_SERIAL = 0.5  # segundos
 
-# Significados provisorios: o protocolo ainda nao define modos e flags.
+# Valores definidos em docs/protocolo.md
 MODO_NORMAL = 0
 MODO_ECLIPSE = 1
 FLAG_BATERIA_BAIXA = 0x01
 TENSAO_BATERIA_BAIXA = 3.55
 
+LINHA_COMANDO = re.compile(r"CMD (\d+) (\d+) (\d+) (\d+)$")
+
 
 def gerar_telemetria(contador, rng):
-    """Telemetria plausivel: luz solar e eclipse variam temperatura, carga e corrente."""
+    """Telemetria plausível: luz solar e eclipse variam temperatura, carga e corrente."""
     fase = math.sin(2 * math.pi * contador / PACOTES_POR_ORBITA)
     no_sol = fase >= 0
     tensao = 3.7 + 0.2 * fase + rng.uniform(-0.01, 0.01)
@@ -39,60 +58,143 @@ def gerar_telemetria(contador, rng):
 
 
 def corromper(pacote, rng):
-    """Inverte um bit, como uma interferencia no enlace que passasse pelo CRC do LoRa."""
+    """Inverte um bit, como uma interferência no enlace que passasse pelo CRC do LoRa."""
     alterado = bytearray(pacote)
     alterado[rng.randrange(len(alterado))] ^= 1 << rng.randrange(8)
     return bytes(alterado)
 
 
-def linhas_recebidas(pacote, validos, invalidos, rng):
-    """Devolve o texto que a estacao imprimiria, ou levanta ValueError se o CRC falhar."""
-    t = decodificar_pacote(pacote)
-    rssi = rng.randint(-105, -80)
-    snr = round(rng.uniform(-2.0, 10.0), 1)
-    json_linha = (
-        f'{{"cubesat_id": {t["cubesat_id"]}, "tipo": {t["tipo"]}, "contador": {t["contador"]}, '
-        f'"tensao_bateria": {t["tensao_bateria"]:.2f}, "corrente": {t["corrente"]:.2f}, '
-        f'"temperatura": {t["temperatura"]:.2f}, "modo": {t["modo"]}, "flags": {t["flags"]}, '
-        f'"rssi": {rssi}, "snr": {snr:.1f}, "validos": {validos}, "invalidos": {invalidos}, '
-        f'"frequencia_mhz": {FREQUENCIA_MHZ:.1f}, "receptor_id": {RECEPTOR_ID}, "raw": "{pacote.hex().upper()}"}}'
-    )
-    return [
-        "========================================",
-        f"Pacote #{t['contador']} Recebido (Válidos: {validos} | Inválidos: {invalidos})",
-        "Status       : Aprovado ✅",
-        "========================================",
-        json_linha,
-    ]
+def formatar(linhas):
+    return "".join(linha + "\r\n" for linha in linhas).encode("utf-8")
 
 
-def transmitir(enviar, args):
-    """Gera os pacotes e entrega as linhas; retorna (enviados, validos, invalidos, perdidos)."""
-    rng = random.Random(args.semente)
-    validos = invalidos = perdidos = contador = 0
+class Simulacao:
+    def __init__(self, enviar, args):
+        self.enviar = enviar
+        self.args = args
+        self.rng = random.Random(args.semente)
+        self.intervalo = args.intervalo
+        self.periodico = True
+        self.contador = 0
+        self.proximo_envio = time.monotonic()
+        self.transmitidos = self.validos = self.invalidos = self.perdidos = 0
+        self.pendente = b""
 
-    while args.pacotes is None or contador < args.pacotes:
-        pacote = montar_pacote(cubesat_id=1, contador=contador, **gerar_telemetria(contador, rng))
-        contador += 1
+    def enlace(self, pacote):
+        """Aplica perda e corrupção; retorna o que chegou, ou None se nada chegou."""
+        if self.rng.random() < self.args.perda:
+            self.perdidos += 1
+            return None
+        if self.rng.random() < self.args.corrupcao:
+            return corromper(pacote, self.rng)
+        return pacote
 
-        if rng.random() < args.perda:
-            perdidos += 1  # nunca chegou: a estacao nao tem como contar este pacote
-        else:
-            if rng.random() < args.corrupcao:
-                pacote = corromper(pacote, rng)
-            try:
-                decodificar_pacote(pacote)
-                validos += 1
-                linhas = linhas_recebidas(pacote, validos, invalidos, rng)
-            except ValueError:
-                invalidos += 1
-                linhas = ["ALERTA: Pacote corrompido (CRC Inválido). Descartado! ❌"]
-            enviar("".join(linha + "\r\n" for linha in linhas).encode("utf-8"))
+    def medir_sinal(self):
+        return self.rng.randint(-105, -80), round(self.rng.uniform(-2.0, 10.0), 1)
 
-        if args.intervalo:
-            time.sleep(args.intervalo)
+    def transmitir_telemetria(self):
+        pacote = montar_pacote(CUBESAT_ID, self.contador % 65536, **gerar_telemetria(self.contador, self.rng))
+        self.contador += 1
+        self.transmitidos += 1
+        recebido = self.enlace(pacote)
+        if recebido is None:
+            return
+        try:
+            t = decodificar_pacote(recebido)
+        except ValueError:
+            self.invalidos += 1
+            self.enviar(formatar(["ALERTA: Pacote corrompido (CRC Inválido). Descartado! ❌"]))
+            return
+        self.validos += 1
+        rssi, snr = self.medir_sinal()
+        self.enviar(formatar([
+            "========================================",
+            f"Pacote #{t['contador']} Recebido (Válidos: {self.validos} | Inválidos: {self.invalidos})",
+            "Status       : Aprovado ✅",
+            "========================================",
+            f'{{"cubesat_id": {t["cubesat_id"]}, "tipo": {t["tipo"]}, "contador": {t["contador"]}, '
+            f'"tensao_bateria": {t["tensao_bateria"]:.2f}, "corrente": {t["corrente"]:.2f}, '
+            f'"temperatura": {t["temperatura"]:.2f}, "modo": {t["modo"]}, "flags": {t["flags"]}, '
+            f'"rssi": {rssi}, "snr": {snr:.1f}, "validos": {self.validos}, "invalidos": {self.invalidos}, '
+            f'"frequencia_mhz": {FREQUENCIA_MHZ:.1f}, "receptor_id": {RECEPTOR_ID}, "raw": "{recebido.hex().upper()}"}}',
+        ]))
 
-    return contador, validos, invalidos, perdidos
+    def responder_ack(self, comando, status):
+        recebido = self.enlace(montar_ack(comando["cubesat_id"], comando["comando_id"], comando["codigo"], status))
+        if recebido is None:
+            return
+        try:
+            ack = decodificar_ack(recebido)
+        except ValueError:
+            self.invalidos += 1
+            self.enviar(formatar(["ALERTA: ACK corrompido. Descartado! ❌"]))
+            return
+        rssi, snr = self.medir_sinal()
+        self.enviar(formatar([
+            f'{{"cubesat_id": {ack["cubesat_id"]}, "tipo": {TIPO_ACK}, "comando_id": {ack["comando_id"]}, '
+            f'"codigo": {ack["codigo"]}, "status": {ack["status"]}, "rssi": {rssi}, "snr": {snr:.1f}, '
+            f'"frequencia_mhz": {FREQUENCIA_MHZ:.1f}, "receptor_id": {RECEPTOR_ID}, "raw": "{recebido.hex().upper()}"}}',
+        ]))
+
+    def executar_comando(self, comando):
+        """O que o firmware do CubeSat faz ao receber um comando íntegro."""
+        codigo, parametro = comando["codigo"], comando["parametro"]
+        status = status_do_comando(codigo, parametro)
+        self.responder_ack(comando, status)
+        if status != STATUS_OK:
+            return
+        if codigo == CMD_SOLICITAR_TELEMETRIA:
+            self.transmitir_telemetria()
+        elif codigo == CMD_ALTERAR_INTERVALO:
+            self.intervalo = parametro
+            self.proximo_envio = time.monotonic() + self.intervalo
+        elif codigo == CMD_ENVIO_PERIODICO:
+            self.periodico = parametro == 1
+            self.proximo_envio = time.monotonic() + self.intervalo
+        elif codigo == CMD_REINICIAR:
+            self.contador = 0
+            self.intervalo = self.args.intervalo
+            self.periodico = True
+            self.proximo_envio = time.monotonic() + self.intervalo
+
+    def receber_linha(self, linha):
+        """O que o firmware da estação faz com uma linha vinda do computador."""
+        encontrado = LINHA_COMANDO.match(linha)
+        if not encontrado:
+            self.enviar(formatar([f"Linha serial ignorada: {linha}"]))
+            return
+        comando_id, cubesat_id, codigo, parametro = map(int, encontrado.groups())
+        self.enviar(formatar([f"Comando {comando_id} transmitido: código {codigo}, parâmetro {parametro}"]))
+        recebido = self.enlace(montar_comando(cubesat_id, comando_id, codigo, parametro))
+        if recebido is None:
+            return
+        try:
+            comando = decodificar_comando(recebido)
+        except ValueError:
+            return  # o CubeSat descarta em silêncio: a estação ficará sem resposta
+        if comando["cubesat_id"] == CUBESAT_ID:
+            self.executar_comando(comando)
+
+    def receber_bytes(self, dados):
+        self.pendente += dados
+        while b"\n" in self.pendente:
+            linha, self.pendente = self.pendente.split(b"\n", 1)
+            self.receber_linha(linha.decode("utf-8", errors="ignore").strip())
+
+    def rodar(self, conexao):
+        while self.args.pacotes is None or self.transmitidos < self.args.pacotes:
+            espera = 1.0
+            if self.periodico:
+                espera = max(0.0, self.proximo_envio - time.monotonic())
+            prontos, _, _ = select.select([conexao], [], [], espera)
+            if prontos:
+                dados = conexao.recv(4096)
+                if not dados:
+                    return
+                self.receber_bytes(dados)
+            if self.periodico and time.monotonic() >= self.proximo_envio:
+                self.transmitir_telemetria()
+                self.proximo_envio += self.intervalo
 
 
 def main():
@@ -109,16 +211,19 @@ def main():
         print(f"Simulador aguardando a ponte em socket://127.0.0.1:{args.porta}", flush=True)
         conexao, _ = servidor.accept()
 
+    simulacao = Simulacao(conexao.sendall, args)
     with conexao:
         try:
-            # Ao abrir um socket://, a pyserial descarta o que ja chegou; espera ela terminar
+            # Ao abrir um socket://, a pyserial descarta o que já chegou; espera ela terminar
             time.sleep(ESPERA_ABERTURA_SERIAL)
-            enviados, validos, invalidos, perdidos = transmitir(conexao.sendall, args)
+            simulacao.proximo_envio = time.monotonic()
+            simulacao.rodar(conexao)
         except (ConnectionError, KeyboardInterrupt):
             print("Simulador encerrado.")
             return
 
-    print(f"Enviados: {enviados} | válidos: {validos} | inválidos: {invalidos} | perdidos: {perdidos}")
+    print(f"Enviados: {simulacao.transmitidos} | válidos: {simulacao.validos} | "
+          f"inválidos: {simulacao.invalidos} | perdidos: {simulacao.perdidos}")
 
 
 if __name__ == "__main__":

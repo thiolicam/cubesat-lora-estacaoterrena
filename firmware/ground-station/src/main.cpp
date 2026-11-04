@@ -44,6 +44,35 @@ struct __attribute__((packed)) TelemetryPacket {
     uint16_t crc;
 };
 
+// Comando enviado ao CubeSat (11 bytes)
+struct __attribute__((packed)) CommandPacket {
+    uint8_t  header;
+    uint8_t  versao;
+    uint8_t  tipo;
+    uint8_t  cubesat_id;
+    uint16_t comando_id;
+    uint8_t  codigo;
+    uint16_t parametro;
+    uint16_t crc;
+};
+
+// Confirmação recebida do CubeSat (10 bytes)
+struct __attribute__((packed)) AckPacket {
+    uint8_t  header;
+    uint8_t  versao;
+    uint8_t  tipo;
+    uint8_t  cubesat_id;
+    uint16_t comando_id;
+    uint8_t  codigo;
+    uint8_t  status;
+    uint16_t crc;
+};
+
+#define HEADER        0xAA
+#define VERSAO        0x01
+#define TIPO_COMANDO  0x02
+#define TIPO_ACK      0x03
+
 // Contadores para métricas de confiabilidade de enlace
 unsigned long pacotesValidos = 0;
 unsigned long pacotesInvalidos = 0;
@@ -62,6 +91,74 @@ uint16_t calcular_crc16(const uint8_t *data, size_t len) {
         }
     }
     return crc;
+}
+
+// Escreve os bytes em hexadecimal; destino precisa de 2 * tamanho + 1 posicoes
+void paraHex(const uint8_t *bytes, size_t tamanho, char *destino) {
+    for (size_t i = 0; i < tamanho; i++) {
+        sprintf(&destino[2 * i], "%02X", bytes[i]);
+    }
+}
+
+void transmitirComando(uint16_t comandoId, uint8_t cubesatId, uint8_t codigo, uint16_t parametro) {
+    CommandPacket comando;
+    comando.header = HEADER;
+    comando.versao = VERSAO;
+    comando.tipo = TIPO_COMANDO;
+    comando.cubesat_id = cubesatId;
+    comando.comando_id = htons(comandoId);
+    comando.codigo = codigo;
+    comando.parametro = htons(parametro);
+    comando.crc = htons(calcular_crc16((const uint8_t*)&comando, sizeof(comando) - sizeof(comando.crc)));
+
+    LoRa.beginPacket();
+    LoRa.write((const uint8_t*)&comando, sizeof(comando));
+    LoRa.endPacket();
+    Serial.printf("Comando %u transmitido: codigo %u, parametro %u\n", comandoId, codigo, parametro);
+}
+
+// A ponte serial envia uma linha por comando: CMD <id> <cubesat> <codigo> <parametro>
+void interpretarLinhaSerial(const char *linha) {
+    unsigned int comandoId, cubesatId, codigo, parametro;
+    if (sscanf(linha, "CMD %u %u %u %u", &comandoId, &cubesatId, &codigo, &parametro) == 4
+        && comandoId <= 0xFFFF && cubesatId <= 0xFF && codigo <= 0xFF && parametro <= 0xFFFF) {
+        transmitirComando(comandoId, cubesatId, codigo, parametro);
+    } else {
+        Serial.printf("Linha serial ignorada: %s\n", linha);
+    }
+}
+
+void lerSerial() {
+    static char linha[48];
+    static size_t tamanho = 0;
+    while (Serial.available()) {
+        char c = Serial.read();
+        if (c == '\n') {
+            linha[tamanho] = '\0';
+            tamanho = 0;
+            interpretarLinhaSerial(linha);
+        } else if (c != '\r' && tamanho < sizeof(linha) - 1) {
+            linha[tamanho++] = c;
+        }
+    }
+}
+
+void receberAck() {
+    AckPacket ack;
+    LoRa.readBytes((uint8_t*)&ack, sizeof(ack));
+
+    uint16_t crcCalculado = calcular_crc16((const uint8_t*)&ack, sizeof(ack) - sizeof(ack.crc));
+    if (crcCalculado != ntohs(ack.crc) || ack.tipo != TIPO_ACK) {
+        pacotesInvalidos++;
+        Serial.println("ALERTA: ACK corrompido. Descartado! ❌");
+        return;
+    }
+
+    char bruto[2 * sizeof(AckPacket) + 1];
+    paraHex((const uint8_t*)&ack, sizeof(ack), bruto);
+    Serial.printf("{\"cubesat_id\": %d, \"tipo\": %d, \"comando_id\": %u, \"codigo\": %d, \"status\": %d, \"rssi\": %d, \"snr\": %.1f, \"frequencia_mhz\": %.1f, \"receptor_id\": %d, \"raw\": \"%s\"}\n",
+        ack.cubesat_id, ack.tipo, ntohs(ack.comando_id), ack.codigo, ack.status,
+        LoRa.packetRssi(), LoRa.packetSnr(), FREQUENCIA / 1E6, RECEPTOR_ID, bruto);
 }
 
 void inicializarLoRa()
@@ -108,12 +205,18 @@ void setup()
 
 void loop()
 {
+    lerSerial();
+
     int tamanhoPacote = LoRa.parsePacket();
 
     if (tamanhoPacote > 0)
     {
         // 1. Validação estrita do tamanho do pacote estruturado
-        if (tamanhoPacote == sizeof(TelemetryPacket))
+        if (tamanhoPacote == sizeof(AckPacket))
+        {
+            receberAck();
+        }
+        else if (tamanhoPacote == sizeof(TelemetryPacket))
         {
             TelemetryPacket pacote;
             LoRa.readBytes((uint8_t*)&pacote, sizeof(TelemetryPacket));
@@ -154,10 +257,7 @@ void loop()
 
                 // Saída estruturada estritamente em JSON para a ponte serial (`serial_bridge.py`)
                 char bruto[2 * sizeof(TelemetryPacket) + 1];
-                const uint8_t *bytesPacote = (const uint8_t*)&pacote;
-                for (size_t i = 0; i < sizeof(TelemetryPacket); i++) {
-                    sprintf(&bruto[2 * i], "%02X", bytesPacote[i]);
-                }
+                paraHex((const uint8_t*)&pacote, sizeof(pacote), bruto);
                 Serial.printf("{\"cubesat_id\": %d, \"tipo\": %d, \"contador\": %d, \"tensao_bateria\": %.2f, \"corrente\": %.2f, \"temperatura\": %.2f, \"modo\": %d, \"flags\": %d, \"rssi\": %d, \"snr\": %.1f, \"validos\": %lu, \"invalidos\": %lu, \"frequencia_mhz\": %.1f, \"receptor_id\": %d, \"raw\": \"%s\"}\n",
                     pacote.cubesat_id, pacote.tipo, contador, tensao, corrente, temperatura, modo, flags, rssi, snr, pacotesValidos, pacotesInvalidos, FREQUENCIA / 1E6, RECEPTOR_ID, bruto);
 
