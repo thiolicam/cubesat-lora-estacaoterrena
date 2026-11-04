@@ -76,11 +76,13 @@ Abra http://localhost:5000.
 
 **Passa se:** cada pacote aceito aparece no dashboard e no `estacao.db`, e a linha do gráfico continua a cada novo pacote.
 
-**Atenção:** o S5.1 prevê passar pelo MQTT. Instale o Mosquitto antes para testar também o `cubesat/telemetry/parsed`:
+**MQTT:** o S5.1 prevê passar pelo broker. Com o Mosquitto instalado e rodando, assine todos os tópicos em outro terminal:
 
 ```bash
-mosquitto_sub -h localhost -t "cubesat/#" -v
+mosquitto_sub -h localhost -t "cubesat/#" -t "groundstation/#" -v
 ```
+
+**Passa se:** cada pacote aparece nos tópicos `raw`, `parsed` e `link/stats`, e o `groundstation/status` mostra `online`. Ao encerrar a ponte, o status deve mudar para `offline`.
 
 ## T5. Falhas previstas (S5.2)
 

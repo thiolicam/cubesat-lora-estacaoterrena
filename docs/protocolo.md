@@ -67,18 +67,38 @@ AA 01 01 01 00 2A 01 74 FD F3 FF 83 01 01 AE FF
 Cada pacote válido gera uma linha JSON, lida pela ponte serial. As demais linhas são mensagens para leitura humana e são ignoradas pela ponte.
 
 ```json
-{"cubesat_id": 1, "contador": 42, "tensao_bateria": 3.72, "corrente": -1.25, "temperatura": -5.25, "modo": 1, "flags": 1, "rssi": -87, "snr": 9.2, "validos": 8, "invalidos": 2}
+{"cubesat_id": 1, "tipo": 1, "contador": 42, "tensao_bateria": 3.72, "corrente": -1.25, "temperatura": -5.25, "modo": 1, "flags": 1, "rssi": -87, "snr": 9.2, "validos": 8, "invalidos": 2, "frequencia_mhz": 915.0, "receptor_id": 1, "raw": "AA010101002A0174FDF3FF830101AEFF"}
 ```
 
-`validos` e `invalidos` são acumulados desde que a estação ligou.
+- `validos` e `invalidos` são acumulados desde que a estação ligou.
+- `receptor_id` identifica a estação terrena e é definido em `RECEPTOR_ID`, no firmware dela.
+- `raw` traz os 16 bytes do pacote em hexadecimal.
 
 ## Tópicos MQTT
 
-| Tópico | Função | Situação |
-|---|---|---|
-| `cubesat/telemetry/raw` | Pacote bruto | A implementar: a serial ainda não entrega os bytes brutos |
-| `cubesat/telemetry/parsed` | Telemetria decodificada | Implementado na ponte serial; não testado com broker |
-| `cubesat/command/send` | Comando enviado | Previsto (S6.4) |
-| `cubesat/command/ack` | Confirmação de comando | Previsto (S6.4) |
-| `groundstation/link/stats` | RSSI, SNR e estatísticas | A implementar |
-| `groundstation/status` | Estado da estação | A implementar |
+| Tópico | Função | Conteúdo | Situação |
+|---|---|---|---|
+| `cubesat/telemetry/raw` | Pacote bruto | Os 16 bytes em hexadecimal | Implementado |
+| `cubesat/telemetry/parsed` | Telemetria decodificada | A linha JSON da serial, sem `raw` | Implementado |
+| `groundstation/link/stats` | RSSI, SNR e estatísticas | JSON com `receptor_id`, `frequencia_mhz`, `rssi`, `snr`, `validos` e `invalidos` | Implementado |
+| `groundstation/status` | Estado da estação | JSON com `estado` (`online` ou `offline`) e `porta_serial`, retido no broker | Implementado |
+| `cubesat/command/send` | Comando enviado | | Previsto (S6.4) |
+| `cubesat/command/ack` | Confirmação de comando | | Previsto (S6.4) |
+
+Se a ponte cair sem avisar, o broker publica `offline` no lugar dela (mensagem "will"). Os tópicos implementados foram testados com o cliente MQTT real contra um broker de teste; falta confirmar com o Mosquitto.
+
+## Banco de dados
+
+A tabela `pacotes` é definida em `server/banco.py` e guarda uma linha por pacote válido.
+
+| Coluna | Descrição |
+|---|---|
+| `id` | Chave da linha |
+| `data_hora` | Momento da gravação, em UTC |
+| `cubesat_id`, `tipo`, `contador` | Identificação do pacote |
+| `tensao_bateria`, `corrente`, `temperatura`, `modo`, `flags` | Telemetria |
+| `rssi`, `snr` | Qualidade do sinal medida na recepção |
+| `validos`, `invalidos` | Contadores acumulados da estação |
+| `frequencia_mhz`, `receptor_id` | Frequência e receptor utilizados |
+
+Comandos e ACKs ainda não têm tabela (S6.4).
