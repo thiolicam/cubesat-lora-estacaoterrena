@@ -222,7 +222,14 @@ class Simulacao:
                 self.receber_bytes(dados)
             if self.periodico and time.monotonic() >= self.proximo_envio:
                 self.transmitir_telemetria()
-                self.proximo_envio += self.intervalo
+                self.agendar_proximo_envio()
+
+    def agendar_proximo_envio(self):
+        """Nunca agenda no passado: depois de o computador dormir, não repõe os envios perdidos.
+
+        O firmware do CubeSat também mede o intervalo a partir do último envio.
+        """
+        self.proximo_envio = max(self.proximo_envio + self.intervalo, time.monotonic())
 
 
 def main():
