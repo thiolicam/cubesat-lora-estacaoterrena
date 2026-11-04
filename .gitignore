@@ -9,6 +9,10 @@ venv/
 .venv/
 .env
 
+# Configuracao do VS Code gerada por maquina (caminhos absolutos)
+c_cpp_properties.json
+firmware/*/.vscode/
+
 # Banco de dados local
 *.sqlite3
 *.db
