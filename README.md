@@ -18,7 +18,28 @@ pip install -r requirements.txt
 python simular.py
 ```
 
-O dashboard fica em http://localhost:5000. Para testar um enlace pior, use por exemplo `python simular.py --perda 0.2 --corrupcao 0.1`. O Mosquitto é opcional: sem ele, os dados só não são publicados no MQTT.
+O dashboard fica em http://localhost:5000. Para testar um enlace pior, use por exemplo `python simular.py --perda 0.2 --corrupcao 0.1`. Sem o Mosquitto, os dados só não são publicados no MQTT.
+
+## Broker MQTT
+Instale o Mosquitto, que no Windows roda como serviço e já aceita conexões locais:
+
+```bash
+winget install EclipseFoundation.Mosquitto
+```
+
+Para rodar manualmente com a configuração do projeto, pare o serviço e use:
+
+```bash
+& "C:\Program Files\mosquitto\mosquitto.exe" -c server/mosquitto.conf -v
+```
+
+Para ver as mensagens, assine os tópicos em `127.0.0.1`, o mesmo endereço usado pela ponte:
+
+```bash
+& "C:\Program Files\mosquitto\mosquitto_sub.exe" -h 127.0.0.1 -t "cubesat/#" -t "groundstation/#" -v
+```
+
+Se um container Docker também usar a porta 1883, ele será outro broker, separado: `localhost` pode cair nele, e as mensagens da ponte não aparecerão, sem nenhum erro. Por isso, informe sempre `127.0.0.1`.
 
 ## Como rodar com as placas
 Com a estação terrena conectada e o Monitor Serial fechado, informe a porta e inicie a ponte e o dashboard em terminais separados:

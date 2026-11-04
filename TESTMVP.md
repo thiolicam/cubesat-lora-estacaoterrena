@@ -6,6 +6,12 @@ Para cada teste, anote a data, o resultado e guarde o log ou a captura de tela: 
 
 ## Preparação
 
+Confira que o serviço do Mosquitto está rodando. Se houver um container Docker com broker na porta 1883, ele é outro broker, separado: use sempre `-h 127.0.0.1` nas ferramentas MQTT, ou você ficará assinando o broker errado sem nenhum erro.
+
+```bash
+Get-Service mosquitto
+```
+
 Rode os comandos a partir da raiz do repositório. Conecte uma placa por vez para identificar as portas e troque `COM3` pela porta de cada uma:
 
 ```bash
@@ -76,10 +82,10 @@ Abra http://localhost:5000.
 
 **Passa se:** cada pacote aceito aparece no dashboard e no `estacao.db`, e a linha do gráfico continua a cada novo pacote.
 
-**MQTT:** o S5.1 prevê passar pelo broker. Com o Mosquitto instalado e rodando, assine todos os tópicos em outro terminal:
+**MQTT:** o S5.1 prevê passar pelo broker. Com o serviço do Mosquitto rodando, assine todos os tópicos em outro terminal. Use `127.0.0.1`, e não `localhost`, para cair no mesmo broker da ponte:
 
 ```bash
-mosquitto_sub -h localhost -t "cubesat/#" -t "groundstation/#" -v
+& "C:\Program Files\mosquitto\mosquitto_sub.exe" -h 127.0.0.1 -t "cubesat/#" -t "groundstation/#" -v
 ```
 
 **Passa se:** cada pacote aparece nos tópicos `raw`, `parsed` e `link/stats`, e o `groundstation/status` mostra `online`. Ao encerrar a ponte, o status deve mudar para `offline`.

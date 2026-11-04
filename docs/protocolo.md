@@ -165,7 +165,9 @@ CMD 7 1 2 5
 | `cubesat/command/send` | Comando enviado | JSON com `comando_id`, `cubesat_id`, `codigo` e `parametro` | Implementado |
 | `cubesat/command/ack` | Confirmação de comando | A linha JSON do ACK | Implementado |
 
-Se a ponte cair sem avisar, o broker publica `offline` no lugar dela (mensagem "will"). Os tópicos implementados foram testados com o cliente MQTT real contra um broker de teste; falta confirmar com o Mosquitto.
+Se a ponte cair sem avisar, o broker publica `offline` no lugar dela (mensagem "will").
+
+O broker é o Mosquitto, com a configuração de `server/mosquitto.conf`. A ponte usa `127.0.0.1:1883` por padrão; `ESTACAO_MQTT_HOST` e `ESTACAO_MQTT_PORTA` mudam esses valores. Os tópicos foram testados com o Mosquitto 2.1.2 e assinantes reais, usando dados simulados.
 
 ## Banco de dados
 
