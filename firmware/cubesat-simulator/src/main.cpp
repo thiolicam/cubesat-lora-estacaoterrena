@@ -13,7 +13,9 @@
 #define LORA_MISO  19
 #define LORA_MOSI  27
 
+#ifndef FREQUENCIA
 #define FREQUENCIA        915E6
+#endif
 #define SPREADING_FACTOR  7
 #define BANDWIDTH         125E3
 #define CODING_RATE       5

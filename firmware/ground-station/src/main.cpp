@@ -18,14 +18,19 @@
 // =====================
 // Configuração LoRa
 // =====================
+// Pode ser definido na gravacao, para diversidade de frequencia (veja o README)
+#ifndef FREQUENCIA
 #define FREQUENCIA        915E6
+#endif
 #define SPREADING_FACTOR  7
 #define BANDWIDTH         125E3
 #define CODING_RATE       5
 #define POTENCIA_DBM      17
 
 // Identifica este receptor quando houver mais de uma estacao (diversidade, S7.1)
+#ifndef RECEPTOR_ID
 #define RECEPTOR_ID       1
+#endif
 
 // =====================
 // Estrutura do Protocolo (16 bytes)

@@ -52,11 +52,24 @@ class TestApi(unittest.TestCase):
     def painel(self, consulta=""):
         return self.cliente.get(f"/api/painel?{consulta}").get_json()
 
-    def test_sem_filtro_soma_todos_os_receptores(self):
+    def test_sem_filtro_cada_transmissao_conta_uma_vez(self):
         dados = self.painel()
-        self.assertEqual(len(dados["pacotes"]), 8)
-        self.assertEqual((dados["enlace_total"]["esperados"], dados["enlace_total"]["recebidos"]), (9, 8))
+        self.assertEqual([p["contador"] for p in dados["pacotes"]], [0, 1, 2])
+        self.assertEqual((dados["enlace_total"]["esperados"], dados["enlace_total"]["recebidos"]), (3, 3))
+        self.assertEqual(dados["enlace_total"]["copias_extras"], 5)
         self.assertEqual(dados["enlace_total"]["interrupcoes"], 0)
+
+    def test_melhor_copia_preserva_a_origem(self):
+        primeiro = self.painel()["pacotes"][0]
+        self.assertEqual((primeiro["receptor_id"], primeiro["rssi"], primeiro["copias"], primeiro["receptores"]),
+                         (1, -80, 3, [1, 2, 3]))
+
+    def test_cada_recepcao_continua_no_banco(self):
+        linhas = self.cliente.get("/api/estatisticas").get_json()
+        self.assertEqual(sum(l["recebidos"] for l in linhas), 8)
+
+    def test_janela_conta_transmissoes(self):
+        self.assertEqual([p["contador"] for p in self.painel("limite=2")["pacotes"]], [1, 2])
 
     def test_filtro_por_receptor(self):
         dados = self.painel("receptor=2")
@@ -79,7 +92,7 @@ class TestApi(unittest.TestCase):
 
     def test_filtro_invalido_e_ignorado_sem_injetar_sql(self):
         dados = self.painel("receptor=1%20OR%201=1&frequencia=abc")
-        self.assertEqual(len(dados["pacotes"]), 8)
+        self.assertEqual(dados, self.painel())
 
     def test_estatisticas_por_origem(self):
         linhas = self.cliente.get("/api/estatisticas").get_json()
@@ -119,7 +132,9 @@ class TestVariosReceptoresDePontaAPonta(unittest.TestCase):
         original = painel.DB_PATH
         painel.DB_PATH = caminho
         try:
-            linhas = painel.app.test_client().get("/api/estatisticas").get_json()
+            cliente = painel.app.test_client()
+            linhas = cliente.get("/api/estatisticas").get_json()
+            combinado = cliente.get("/api/painel?limite=5000").get_json()["enlace_total"]
         finally:
             painel.DB_PATH = original
             time.sleep(0.1)
@@ -132,6 +147,37 @@ class TestVariosReceptoresDePontaAPonta(unittest.TestCase):
             self.assertGreater(linha["taxa_recepcao"], 0.65)
             self.assertLess(linha["taxa_recepcao"], 0.95)
             self.assertEqual(linha["interrupcoes"], 0)
+        # Com 20% de perda independente em 3 receptores, juntos eles perdem perto de 0,8%
+        self.assertGreater(combinado["taxa_recepcao"], 0.97)
+        self.assertGreater(combinado["ganho_diversidade"], 0.05)
+        self.assertEqual(combinado["interrupcoes"], 0)
+
+    def test_ponte_sem_envio_de_comandos_deixa_a_fila_para_a_outra(self):
+        pasta = tempfile.TemporaryDirectory(ignore_cleanup_errors=True)
+        caminho = os.path.join(pasta.name, "teste.db")
+        banco.preparar_banco(caminho)
+        comando = banco.registrar_comando(caminho, 1, 1)
+        porta = porta_livre()
+        ambiente = dict(
+            os.environ,
+            ESTACAO_DB=caminho,
+            ESTACAO_SERIAL=f"socket://127.0.0.1:{porta}",
+            ESTACAO_MQTT_PORTA=str(porta_livre()),
+            ESTACAO_ENVIA_COMANDOS="0",
+            PYTHONIOENCODING="utf-8",
+        )
+        simulador = subprocess.Popen(
+            [sys.executable, os.path.join(RAIZ, "server", "simulador_estacao.py"), "--porta", str(porta),
+             "--pacotes", "40", "--intervalo", "0.05", "--perda", "0", "--corrupcao", "0"],
+            stdout=subprocess.PIPE, text=True, encoding="utf-8", env=ambiente,
+        )
+        simulador.stdout.readline()
+        subprocess.run([sys.executable, os.path.join(RAIZ, "server", "serial_bridge.py")],
+                       stdout=subprocess.DEVNULL, env=ambiente, timeout=60)
+        simulador.communicate(timeout=10)
+        estado = banco.listar_comandos(caminho)[0]["estado"]
+        pasta.cleanup()
+        self.assertEqual((comando, estado), (1, banco.PENDENTE))
 
 
 if __name__ == "__main__":

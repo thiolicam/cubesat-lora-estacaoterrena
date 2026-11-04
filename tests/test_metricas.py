@@ -4,7 +4,9 @@ import unittest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "dashboard"))
 
-from metricas import LIMITE_SALTO, calcular_agregado, calcular_enlace, calcular_por_hora, calcular_por_origem
+from metricas import (
+    LIMITE_SALTO, calcular_agregado, calcular_enlace, calcular_por_hora, calcular_por_origem, consolidar,
+)
 
 
 def por_contador(*contadores):
@@ -100,10 +102,43 @@ class TestEstatisticas(unittest.TestCase):
         linhas = [pacote(1, 0, frequencia=915.0), pacote(1, 0, frequencia=923.3)]
         self.assertEqual([r["frequencia_mhz"] for r in calcular_por_origem(linhas)], [915.0, 923.3])
 
-    def test_agregado_soma_as_origens(self):
+    def test_agregado_conta_cada_transmissao_uma_vez(self):
         linhas = [pacote(1, 0), pacote(2, 0), pacote(1, 1), pacote(1, 2), pacote(1, 3), pacote(2, 3)]
         r = calcular_agregado(linhas)
-        self.assertEqual((r["esperados"], r["recebidos"], r["taxa_recepcao"]), (8, 6, 0.75))
+        self.assertEqual((r["esperados"], r["recebidos"], r["taxa_recepcao"], r["copias_extras"]), (4, 4, 1.0, 2))
+        self.assertTrue(r["combinado"])
+
+    def test_ganho_de_diversidade(self):
+        # Cada receptor perde pacotes diferentes: 3 de 4 sozinhos, 4 de 4 juntos
+        linhas = [pacote(1, 0), pacote(2, 0), pacote(2, 1), pacote(1, 2), pacote(1, 3), pacote(2, 3)]
+        r = calcular_agregado(linhas)
+        self.assertEqual(r["melhor_taxa_individual"], 0.75)
+        self.assertEqual(r["taxa_recepcao"], 1.0)
+        self.assertEqual(r["ganho_diversidade"], 0.25)
+
+    def test_transmissao_que_nenhum_recebeu_nao_chegou(self):
+        linhas = [pacote(1, 0), pacote(2, 0), pacote(1, 2), pacote(2, 2)]
+        r = calcular_agregado(linhas)
+        self.assertEqual((r["esperados"], r["recebidos"], r["nao_chegaram"]), (3, 2, 1))
+
+    def test_consolidar_mantem_a_melhor_copia_e_a_origem(self):
+        linhas = [pacote(1, 5, rssi=-100), pacote(2, 5, rssi=-80), pacote(3, 5, rssi=-90)]
+        unico, = consolidar(linhas)
+        self.assertEqual((unico["receptor_id"], unico["rssi"], unico["copias"], unico["receptores"]),
+                         (2, -80, 3, [1, 2, 3]))
+
+    def test_mesmo_contador_com_bytes_diferentes_nao_e_duplicata(self):
+        # O CubeSat reiniciou e voltou a enviar o contador 5 com outros valores
+        linhas = [dict(pacote(1, 5), raw="AA01"), dict(pacote(2, 5), raw="BB02")]
+        self.assertEqual(len(consolidar(linhas)), 2)
+
+    def test_mesmos_bytes_muito_depois_nao_sao_duplicata(self):
+        linhas = [
+            dict(pacote(1, 5, hora="2026-11-04 10:00:00"), raw="AA01"),
+            dict(pacote(2, 5, hora="2026-11-04 10:00:30"), raw="AA01"),
+            dict(pacote(1, 5, hora="2026-11-04 11:00:00"), raw="AA01"),
+        ]
+        self.assertEqual([u["copias"] for u in consolidar(linhas)], [2, 1])
 
     def test_agregado_nao_confunde_receptores_fora_de_ordem_com_interrupcao(self):
         # Sem separar por receptor, 5 depois de 6 pareceria um salto enorme
@@ -112,7 +147,7 @@ class TestEstatisticas(unittest.TestCase):
 
     def test_agregado_com_um_receptor_e_o_proprio_calculo(self):
         linhas = [pacote(1, 0), pacote(1, 2)]
-        self.assertEqual(calcular_agregado(linhas), calcular_enlace(linhas))
+        self.assertEqual(calcular_agregado(linhas), {**calcular_enlace(linhas), "combinado": False})
 
     def test_linhas_antigas_sem_receptor_tem_grupo_proprio(self):
         linhas = [pacote(None, 0, frequencia=None), pacote(1, 1)]

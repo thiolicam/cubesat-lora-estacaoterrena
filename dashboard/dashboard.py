@@ -3,7 +3,7 @@ import os
 import sys
 from flask import Flask, jsonify, render_template, request
 
-from metricas import calcular_agregado, calcular_por_hora, calcular_por_origem
+from metricas import calcular_agregado, calcular_por_hora, calcular_por_origem, consolidar
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'server'))
 import banco
@@ -19,7 +19,7 @@ DB_PATH = os.environ.get("ESTACAO_DB", os.path.join(os.path.dirname(__file__), '
 
 COLUNAS = (
     "cubesat_id, tipo, contador, tensao_bateria, corrente, temperatura, modo, flags, rssi, snr, "
-    "validos, invalidos, frequencia_mhz, receptor_id, data_hora"
+    "validos, invalidos, frequencia_mhz, receptor_id, raw, data_hora"
 )
 JANELA_PADRAO = 200
 JANELA_MAXIMA = 5000
@@ -115,13 +115,16 @@ def api_painel():
     limite = request.args.get("limite", JANELA_PADRAO, type=int)
     limite = max(1, min(limite, JANELA_MAXIMA))
     filtros = filtros_da_requisicao()
-    pacotes = buscar_pacotes(limite, **filtros)
+    opcoes = buscar_opcoes_de_filtro()
+    # A janela conta transmissões: cada uma pode ter chegado a todos os receptores
+    copias_por_pacote = 1 if filtros["receptor"] is not None else max(1, len(opcoes["receptores"]))
+    recepcoes = buscar_pacotes(limite * copias_por_pacote, **filtros)
     return jsonify({
-        "pacotes": pacotes,
-        "enlace_janela": calcular_agregado(pacotes),
+        "pacotes": consolidar(recepcoes)[-limite:],
+        "enlace_janela": calcular_agregado(recepcoes),
         "enlace_total": calcular_agregado(buscar_pacotes(**filtros)),
         "comandos": banco.listar_comandos(DB_PATH),
-        "opcoes": buscar_opcoes_de_filtro(),
+        "opcoes": opcoes,
     })
 
 

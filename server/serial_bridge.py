@@ -38,8 +38,11 @@ TIPO_ACK = 3
 CAMPOS_ENLACE = ("receptor_id", "frequencia_mhz", "rssi", "snr", "validos", "invalidos")
 CAMPOS_BANCO = (
     "cubesat_id", "tipo", "contador", "tensao_bateria", "corrente", "temperatura", "modo",
-    "flags", "rssi", "snr", "validos", "invalidos", "frequencia_mhz", "receptor_id",
+    "flags", "rssi", "snr", "validos", "invalidos", "frequencia_mhz", "receptor_id", "raw",
 )
+
+# Com vários receptores há uma ponte por estação, mas só uma pode transmitir os comandos
+ENVIA_COMANDOS = os.environ.get("ESTACAO_ENVIA_COMANDOS", "1") != "0"
 
 
 class LeitorDeLinhas:
@@ -192,7 +195,8 @@ def main():
             linha = leitor.ler()
             if linha:
                 processar_linha(cliente, linha)
-            atender_comandos(cliente, serial_esp32)
+            if ENVIA_COMANDOS:
+                atender_comandos(cliente, serial_esp32)
     except serial.SerialException as e:
         print(f"❌ Erro na porta serial {PORTA_SERIAL}: {e}. Verifique se a placa está conectada "
               "e se o Monitor Serial do PlatformIO está fechado.")

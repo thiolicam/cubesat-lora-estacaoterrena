@@ -49,7 +49,7 @@
     background: var(--superficie); border: 1px solid var(--borda); color: var(--texto-2);
   }
   .grade { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); }
-  .blocos { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); }
+  .blocos { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); }
   .cartao { background: var(--superficie); border: 1px solid var(--borda); border-radius: 10px; padding: 14px 16px; min-width: 0; }
   .rotulo { color: var(--texto-2); }
   .valor { font-size: 26px; font-weight: 600; margin-top: 2px; }
@@ -144,8 +144,6 @@
   <div id="conteudo" hidden>
     <h2>Confiabilidade do enlace</h2>
     <section class="blocos" id="blocos"></section>
-
-    <p class="aviso" id="aviso-misturados" hidden>Os gráficos estão misturando vários receptores. Escolha um no filtro para ler cada medida.</p>
 
     <h2>Energia e temperatura</h2>
     <section class="grade" id="graficos-satelite"></section>
@@ -429,8 +427,13 @@ function desenharBlocos(janela, total, ultimo) {
   el("blocos").replaceChildren(
     bloco("Taxa de recepção", porcentagem(janela.taxa_recepcao), `Histórico completo: ${porcentagem(total.taxa_recepcao)} de ${numero(total.esperados)}`),
     bloco("Recebidos", numero(janela.recebidos), `de ${numero(janela.esperados)} esperados${interrupcoes}`),
-    bloco("Corrompidos", numero(janela.corrompidos), "Descartados pelo CRC"),
-    bloco("Não chegaram", numero(janela.nao_chegaram), "Lacunas no contador, sem os corrompidos"),
+    ...(janela.combinado ? [bloco(
+      "Ganho de diversidade",
+      `+${numero(janela.ganho_diversidade * 100, 1)} p.p.`,
+      `${janela.origens} origens juntas: ${porcentagem(janela.taxa_recepcao)}; melhor sozinha: ${porcentagem(janela.melhor_taxa_individual)}`,
+    )] : []),
+    bloco("Corrompidos", numero(janela.corrompidos), janela.combinado ? "Cópias descartadas pelo CRC, em todos os receptores" : "Descartados pelo CRC"),
+    bloco("Não chegaram", numero(janela.nao_chegaram), janela.combinado ? "Nenhum receptor recebeu íntegro" : "Lacunas no contador, sem os corrompidos"),
     bloco("Sinal médio", janela.rssi_medio === null ? "–" : `${numero(janela.rssi_medio, 0)} dBm`, janela.snr_medio === null ? "SNR: –" : `SNR: ${numero(janela.snr_medio, 1)} dB`),
     bloco("Estado do CubeSat", `Modo ${ultimo.modo ?? "–"}`, `Flags: ${ultimo.flags === null ? "–" : "0x" + ultimo.flags.toString(16).toUpperCase().padStart(2, "0")}`),
   );
@@ -439,6 +442,8 @@ function desenharBlocos(janela, total, ultimo) {
 const COLUNAS_TABELA = [
   ["Hora", (p) => hora(instante(p.data_hora))],
   ["Pacote", (p) => p.contador],
+  ["Melhor receptor", (p) => p.receptor_id ?? "–"],
+  ["Cópias", (p) => p.copias],
   ["Tensão (V)", (p) => formatar(p.tensao_bateria, 2)],
   ["Corrente (A)", (p) => formatar(p.corrente, 2)],
   ["Temperatura (°C)", (p) => formatar(p.temperatura, 2)],
@@ -641,9 +646,7 @@ async function atualizar() {
     preencherFiltro(el("filtro-frequencia"), dados.opcoes.frequencias, "Todas", (v) => `${numero(v, 1)} MHz`);
     const aviso = el("aviso");
     const temDados = dados.pacotes.length > 0;
-    const filtrado = el("filtro-receptor").value || el("filtro-frequencia").value;
-    el("aviso-misturados").hidden = el("filtro-receptor").value !== "" || new Set(dados.pacotes.map((p) => p.receptor_id)).size <= 1;
-    el("conteudo").hidden = !temDados;
+    const filtrado = el("filtro-receptor").value || el("filtro-frequencia").value;    el("conteudo").hidden = !temDados;
     aviso.hidden = temDados;
     aviso.textContent = filtrado
       ? "Nenhum pacote para este filtro."

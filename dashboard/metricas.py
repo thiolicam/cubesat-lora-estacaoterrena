@@ -1,10 +1,14 @@
 """Metricas de confiabilidade do enlace, calculadas a partir dos pacotes gravados."""
+from datetime import datetime
 
 MODULO_CONTADOR = 65536  # o contador do pacote tem 16 bits e volta a 0
 
 # Um salto maior que este nao conta como perda: o CubeSat reiniciou ou ficou fora de
 # alcance, e nao ha como saber quantos pacotes foram de fato transmitidos nesse intervalo.
 LIMITE_SALTO = 256
+
+# Bytes iguais só contam como a mesma transmissão se chegarem perto no tempo
+JANELA_MESMA_TRANSMISSAO_S = 60
 
 
 def _contar_corrompidos(linhas):
@@ -100,20 +104,71 @@ def calcular_por_origem(linhas):
     ]
 
 
+def _momento(linha):
+    try:
+        return datetime.fromisoformat(linha.get("data_hora") or "")
+    except ValueError:
+        return None
+
+
+def _mesma_transmissao(grupo, linha):
+    anterior, atual = _momento(grupo[-1]), _momento(linha)
+    if anterior is None or atual is None:
+        return True
+    return abs((atual - anterior).total_seconds()) <= JANELA_MESMA_TRANSMISSAO_S
+
+
+def agrupar_transmissoes(linhas):
+    """Junta as cópias de uma transmissão, recebidas por receptores diferentes.
+
+    Os bytes do pacote identificam a transmissão; sem eles, em linhas antigas, vale o contador.
+    O receptor que recebeu a mesma cópia duas vezes não muda o resultado: é só uma repetição.
+    """
+    grupos = []
+    abertos = {}
+    for linha in linhas:
+        chave = linha.get("raw") or (linha.get("cubesat_id"), linha.get("contador"))
+        grupo = abertos.get(chave)
+        if grupo is None or not _mesma_transmissao(grupo, linha):
+            grupo = []
+            grupos.append(grupo)
+            abertos[chave] = grupo
+        grupo.append(linha)
+    return grupos
+
+
+def consolidar(linhas):
+    """Uma linha por transmissão: a cópia de melhor RSSI, com a lista de quem recebeu."""
+    consolidados = []
+    for grupo in agrupar_transmissoes(linhas):
+        melhor = max(grupo, key=lambda l: (l.get("rssi") is not None, l.get("rssi") or 0))
+        receptores = sorted({l.get("receptor_id") for l in grupo if l.get("receptor_id") is not None})
+        consolidados.append({**melhor, "copias": len(grupo), "receptores": receptores})
+    return consolidados
+
+
 def calcular_agregado(linhas):
-    """Soma as estatísticas de cada origem; com um único receptor, é o próprio cálculo dele."""
+    """Com vários receptores, uma transmissão conta como recebida se qualquer um deles a recebeu.
+
+    O ganho de diversidade é quanto o conjunto recebe a mais que o melhor receptor sozinho.
+    """
     por_origem = calcular_por_origem(linhas)
     if len(por_origem) <= 1:
-        return calcular_enlace(linhas)
-    somas = {
-        campo: sum(item[campo] for item in por_origem)
-        for campo in ("esperados", "recebidos", "corrompidos", "nao_chegaram", "interrupcoes")
-    }
+        return {**calcular_enlace(linhas), "combinado": False}
+    unicos = calcular_enlace(consolidar(linhas))
+    melhor_taxa = max(item["taxa_recepcao"] or 0 for item in por_origem)
     return {
-        **somas,
-        "taxa_recepcao": somas["recebidos"] / somas["esperados"] if somas["esperados"] else None,
+        **unicos,
+        # Soma de cópias: outro receptor pode ter recebido íntegro o que este descartou
+        "corrompidos": sum(item["corrompidos"] for item in por_origem),
+        "nao_chegaram": unicos["esperados"] - unicos["recebidos"],
         "rssi_medio": _media(linhas, "rssi"),
         "snr_medio": _media(linhas, "snr"),
+        "combinado": True,
+        "origens": len(por_origem),
+        "copias_extras": len(linhas) - unicos["recebidos"],
+        "melhor_taxa_individual": melhor_taxa,
+        "ganho_diversidade": unicos["taxa_recepcao"] - melhor_taxa,
     }
 
 
