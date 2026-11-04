@@ -1,113 +1,167 @@
 #include <Arduino.h>
 #include <SPI.h>
 #include <LoRa.h>
-#include <lwip/def.h>
+#include <lwip/def.h> // Para conversão Big-Endian (ntohs)
 
-// Pinos SPI do RFM95 na Estação Terrena
-#define SCK_PIN    5
-#define MISO_PIN   19
-#define MOSI_PIN   27
-#define SS_PIN     18
-#define RST_PIN    14
-#define DIO0_PIN   26
+// =====================
+// Pinagem da LION
+// =====================
+#define LORA_SS    5 
+#define LORA_RST   16
+#define LORA_DIO0  4
 
-#define BAND       915E6
+// SPI
+#define LORA_SCK   18
+#define LORA_MISO  19
+#define LORA_MOSI  23
 
-// Estrutura binária de 12 bytes idêntica à do CubeSat
+// =====================
+// Configuração LoRa
+// =====================
+#define FREQUENCIA        915E6
+#define SPREADING_FACTOR  7
+#define BANDWIDTH         125E3
+#define CODING_RATE       5
+
+// =====================
+// Estrutura do Protocolo (16 bytes)
+// =====================
 struct __attribute__((packed)) TelemetryPacket {
-    uint8_t  header;       // 0xAA
-    uint8_t  versao;       // 0x01
-    uint8_t  tipo;         // 0x01 (Telemetria)
-    uint8_t  cubesat_id;   // 1
-    uint16_t contador;     // Sequencial
-    int16_t  tensao;       // Valor x 100
-    int16_t  temperatura;  // Valor x 100
-    uint16_t crc;          // CRC-16
+    uint8_t  header;
+    uint8_t  versao;
+    uint8_t  tipo;
+    uint8_t  cubesat_id;
+    uint16_t contador;
+    int16_t  tensao;
+    int16_t  temperatura;
+    int16_t  corrente;
+    uint8_t  modo_de_operacao;
+    uint8_t  flag_erros;
+    uint16_t crc;
 };
 
-// Contadores de pacotes para a métrica de confiabilidade
+// Contadores para métricas de confiabilidade de enlace
 unsigned long pacotesValidos = 0;
 unsigned long pacotesInvalidos = 0;
 
-// Função simples para cálculo de CRC-16 (Modbus/CCITT padrão para validação)
-uint16_t calcularCRC16(const uint8_t *data, size_t length) {
+// Algoritmo de Cálculo do CRC-16 (CCITT)
+uint16_t calcular_crc16(const uint8_t *data, size_t len) {
     uint16_t crc = 0xFFFF;
-    for (size_t i = 0; i < length; i++) {
-        crc ^= data[i];
-        for (uint8_t j = 0; j < 8; j++) {
-            if (crc & 0x0001) {
-                crc = (crc >> 1) ^ 0xA001;
+    for (size_t i = 0; i < len; i++) {
+        crc ^= (data[i] << 8);
+        for (uint8_t bit = 0; bit < 8; bit++) {
+            if (crc & 0x8000) {
+                crc = (crc << 1) ^ 0x1021;
             } else {
-                crc >>= 1;
+                crc <<= 1;
             }
         }
     }
     return crc;
 }
 
-void setup() {
+void inicializarLoRa()
+{
+    Serial.println("Inicializando SPI...");
+    SPI.begin(LORA_SCK, LORA_MISO, LORA_MOSI, LORA_SS);
+    Serial.println("SPI OK");
+
+    LoRa.setPins(LORA_SS, LORA_RST, LORA_DIO0);
+
+    Serial.println("Inicializando RFM95...");
+
+    if (!LoRa.begin(FREQUENCIA))
+    {
+        Serial.println("Erro ao inicializar o RFM95.");
+        while (1);
+    }
+
+    LoRa.setSpreadingFactor(SPREADING_FACTOR);
+    LoRa.setSignalBandwidth(BANDWIDTH);
+    LoRa.setCodingRate4(CODING_RATE);
+
+    Serial.println("RFM95 inicializado com sucesso.");
+    Serial.println();
+}
+
+void setup()
+{
     Serial.begin(115200);
     while (!Serial);
 
-    Serial.println("--- Estação Terrena LION Iniciada (com CRC e Validação) ---");
+    Serial.println("==============================");
+    Serial.println(" Receptor LoRa - LION ");
+    Serial.println("==============================");
 
-    SPI.begin(SCK_PIN, MISO_PIN, MOSI_PIN, SS_PIN);
-    LoRa.setPins(SS_PIN, RST_PIN, DIO0_PIN);
+    inicializarLoRa();
 
-    if (!LoRa.begin(BAND)) {
-        Serial.println("Erro ao inicializar o rádio RFM95 na Estação Terrena!");
-    } else {
-        // Ativa explicitamente o CRC no rádio LoRa de hardware
-        LoRa.enableCrc();
-        Serial.println("Rádio LoRa da Estação Terrena a escutar na frequência 915 MHz com CRC ativo...");
-    }
+    Serial.println("Aguardando pacotes...");
+    Serial.println();
 }
 
-void loop() {
-    int packetSize = LoRa.parsePacket();
-    
-    if (packetSize > 0) {
-        // 1. Verifica se o tamanho do pacote bate exatamente com a estrutura esperada
-        if (packetSize == sizeof(TelemetryPacket)) {
-            uint8_t buffer[sizeof(TelemetryPacket)];
-            
-            // Lê os bytes brutos para o buffer de verificação
-            LoRa.readBytes(buffer, sizeof(TelemetryPacket));
+void loop()
+{
+    int tamanhoPacote = LoRa.parsePacket();
 
-            TelemetryPacket *pacote = (TelemetryPacket*)buffer;
+    if (tamanhoPacote > 0)
+    {
+        // 1. Validação estrita do tamanho do pacote estruturado
+        if (tamanhoPacote == sizeof(TelemetryPacket))
+        {
+            TelemetryPacket pacote;
+            LoRa.readBytes((uint8_t*)&pacote, sizeof(TelemetryPacket));
 
-            // 2. Separa os bytes de dados (tudo exceto os últimos 2 bytes do CRC) e calcula o CRC local
-            uint16_t crcRecebido = ntohs(pacote->crc);
-            uint16_t crcCalculado = calcularCRC16(buffer, sizeof(TelemetryPacket) - 2);
+            // 2. Validação do CRC
+            size_t tamanho_payload = sizeof(TelemetryPacket) - sizeof(pacote.crc);
+            uint16_t crc_calculado = calcular_crc16((uint8_t*)&pacote, tamanho_payload);
+            uint16_t crc_recebido = ntohs(pacote.crc);
 
-            // 3. Validação de Integridade (CRC)
-            if (crcCalculado == crcRecebido) {
+            if (crc_calculado == crc_recebido) {
                 pacotesValidos++;
 
-                // Converte os campos de rede (Big-Endian) para o formato local
-                uint16_t contador = ntohs(pacote->contador);
-                float tensao = (float)ntohs(pacote->tensao) / 100.0;
-                float temperatura = (float)ntohs(pacote->temperatura) / 100.0;
+                // Extração e Conversão de Endianness e Escalas corretas
+                uint16_t contador = ntohs(pacote.contador);
+                float tensao = (float)ntohs(pacote.tensao) / 100.0f;
+                float temperatura = (float)ntohs(pacote.temperatura) / 100.0f;
+                float corrente = (float)ntohs(pacote.corrente) / 100.0f; // Assumindo ajuste de escala por 100 igual à tensão/temperatura
+                uint8_t modo = pacote.modo_de_operacao;
+                uint8_t flags = pacote.flag_erros;
+                
+                // Métricas do Rádio LoRa (Enlace)
                 int rssi = LoRa.packetRssi();
                 float snr = LoRa.packetSnr();
 
-                // Imprime em formato JSON para o script Python e exibe as estatísticas de CRC
-                // Exemplo de adaptação no JSON enviado pela Estação Terrena via Serial USB:
-                Serial.printf("{\"cubesat_id\": %d, \"contador\": %d, \"tensao_bateria\": %.2f, \"temperatura\": %.2f, \"modo\": %d, \"erro\": %d, \"altitude\": %.1f, \"rssi\": %d, \"snr\": %.1f, \"validos\": %lu, \"invalidos\": %lu}\n",
-                    pacote->cubesat_id, contador, tensao, temperatura, modo, erro, altitude, rssi, snr, pacotesValidos, pacotesInvalidos);
+                // Exibição amigável formatada no Monitor Serial
+                Serial.println("========================================");
+                Serial.printf("Pacote #%d Recebido (Válidos: %lu | Inválidos: %lu)\n", contador, pacotesValidos, pacotesInvalidos);
+                Serial.printf("CubeSat ID   : %d\n", pacote.cubesat_id);
+                Serial.printf("Tensão       : %.2f V\n", tensao);
+                Serial.printf("Corrente     : %.2f A (ou mA conforme escala)\n", corrente);
+                Serial.printf("Temperatura  : %.2f °C\n", temperatura);
+                Serial.printf("Modo         : %d\n", modo);
+                Serial.printf("Flags de Erro: 0x%02X\n", flags);
+                Serial.printf("RSSI         : %d dBm\n", rssi);
+                Serial.printf("SNR          : %.1f dB\n", snr);
+                Serial.println("Status       : Aprovado ✅");
+                Serial.println("========================================");
+
+                // Saída estruturada estritamente em JSON para a ponte serial (`serial_bridge.py`)
+                Serial.printf("{\"cubesat_id\": %d, \"contador\": %d, \"tensao_bateria\": %.2f, \"corrente\": %.2f, \"temperatura\": %.2f, \"modo\": %d, \"flags\": %d, \"rssi\": %d, \"snr\": %.1f, \"validos\": %lu, \"invalidos\": %lu}\n",
+                    pacote.cubesat_id, contador, tensao, corrente, temperatura, modo, flags, rssi, snr, pacotesValidos, pacotesInvalidos);
+
             } else {
-                // CRC Inválido: Pacote corrompido no ar
                 pacotesInvalidos++;
-                Serial.printf("[ALERTA CRC] Pacote corrompido descartado! (Recebido: 0x%04X | Calculado: 0x%04X) | Válidos: %lu | Inválidos: %lu\n",
-                    crcRecebido, crcCalculado, pacotesValidos, pacotesInvalidos);
+                Serial.println("========================================");
+                Serial.println("ALERTA: Pacote corrompido (CRC Inválido). Descartado! ❌");
+                Serial.printf("Recebido: 0x%04X | Calculado: 0x%04X\n", crc_recebido, crc_calculado);
+                Serial.println("========================================");
             }
-        } else {
-            // Tamanho de pacote inválido (lixo ou interferência)
+        } 
+        else 
+        {
             pacotesInvalidos++;
-            Serial.printf("[ALERTA TAMANHO] Pacote com tamanho incorreto descartado (%d bytes). | Válidos: %lu | Inválidos: %lu\n",
-                packetSize, pacotesValidos, pacotesInvalidos);
-            
-            // Esvazia o buffer da biblioteca LoRa
+            Serial.printf("ALERTA: Pacote com tamanho incorreto descartado (%d bytes).\n", tamanhoPacote);
+            // Esvazia o buffer do rádio
             while (LoRa.available()) {
                 LoRa.read();
             }
