@@ -6,6 +6,12 @@
 #define LORA_RST   14
 #define LORA_DIO0  26
 
+// SPI da placa (pinagem da TTGO LoRa32; ajuste se a placa for outra).
+// Sem isto a biblioteca usa o SCK padrao do ESP32 (18), que colide com LORA_SS.
+#define LORA_SCK   5
+#define LORA_MISO  19
+#define LORA_MOSI  27
+
 #define FREQUENCIA        915E6
 #define SPREADING_FACTOR  7
 #define BANDWIDTH         125E3
@@ -85,6 +91,7 @@ void setup() {
 
   Serial.println("Iniciando Transmissor CubeSat LoRa...");
 
+  SPI.begin(LORA_SCK, LORA_MISO, LORA_MOSI, LORA_SS);
   LoRa.setPins(LORA_SS, LORA_RST, LORA_DIO0);
 
   if (!LoRa.begin(FREQUENCIA)) {
