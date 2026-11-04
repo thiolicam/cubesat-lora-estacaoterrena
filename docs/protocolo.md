@@ -177,7 +177,13 @@ O broker é o Mosquitto, com a configuração de `server/mosquitto.conf`. A pont
 | `GET /api/estatisticas?receptor=&frequencia=` | Uma linha por receptor e frequência, em todo o histórico |
 | `GET /api/estatisticas?periodo=hora` | O mesmo, hora a hora; o período está em UTC |
 
-As estatísticas trazem `esperados`, `recebidos`, `corrompidos`, `nao_chegaram`, `interrupcoes`, `taxa_recepcao`, `rssi_medio` e `snr_medio`. Elas são calculadas na hora a partir da tabela `pacotes`, sem uma tabela própria, porque as perdas dependem da sequência dos contadores de cada receptor. Sem filtro, os totais somam os receptores.
+As estatísticas trazem `esperados`, `recebidos`, `corrompidos`, `nao_chegaram`, `interrupcoes`, `taxa_recepcao`, `rssi_medio` e `snr_medio`. Elas são calculadas na hora a partir da tabela `pacotes`, sem uma tabela própria, porque as perdas dependem da sequência dos contadores de cada receptor.
+
+## Vários receptores
+
+Cada recepção fica registrada em `pacotes`, com seu receptor, frequência, RSSI e SNR. Para evitar duplicidade, cópias com os mesmos bytes (`raw`), recebidas em até 60 s, contam como uma transmissão; linhas antigas sem `raw` usam o contador.
+
+O `/api/painel` entrega por transmissão a cópia de melhor RSSI, com `copias` e `receptores`. Quando há mais de uma origem, as estatísticas trazem `combinado: true`, uma transmissão conta como recebida se qualquer receptor a recebeu, e `ganho_diversidade` é a diferença entre a taxa do conjunto e a do melhor receptor sozinho. Nesse caso, `corrompidos` soma as cópias descartadas, e `nao_chegaram` conta o que nenhum receptor recebeu íntegro.
 
 ## Banco de dados
 

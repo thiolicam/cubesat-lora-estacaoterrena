@@ -54,6 +54,23 @@ python dashboard/dashboard.py
 
 No PowerShell, defina a porta antes com `$env:ESTACAO_SERIAL = "COM3"`.
 
+## Como operar mais de um receptor
+Cada receptor é uma placa com o próprio `RECEPTOR_ID`, definido na gravação. No PowerShell:
+
+```bash
+$env:PLATFORMIO_BUILD_FLAGS = "-DRECEPTOR_ID=2"; pio run -d firmware/ground-station -t upload --upload-port COM5
+```
+
+Para diversidade de frequência, inclua a frequência em hertz, como `-DRECEPTOR_ID=3 -DFREQUENCIA=923.3E6`. Depois, limpe a variável com `Remove-Item Env:PLATFORMIO_BUILD_FLAGS`.
+
+Rode uma ponte por receptor, todas no mesmo banco. Só a primeira transmite comandos; nas demais, desative o envio:
+
+```bash
+$env:ESTACAO_SERIAL = "COM5"; $env:ESTACAO_ENVIA_COMANDOS = "0"; python server/serial_bridge.py
+```
+
+No dashboard, sem filtro de receptor, cada transmissão conta uma vez, e os gráficos mostram a cópia de melhor RSSI. O bloco "Ganho de diversidade" compara o conjunto com o melhor receptor sozinho. As estatísticas por receptor continuam separadas.
+
 ## Testes
 
 ```bash
