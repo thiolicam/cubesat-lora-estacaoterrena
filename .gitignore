@@ -6,11 +6,15 @@
 __pycache__/
 *.pyc
 venv/
+.venv/
 .env
 
 # Banco de dados local
 *.sqlite3
 *.db
+
+# Dados gerados em tempo de execucao
+data/telemetria_recente.json
 
 # OS
 .DS_Store
