@@ -1,14 +1,21 @@
 import sqlite3
 import os
-from flask import Flask, jsonify
+from flask import Flask, jsonify, render_template, request
+
+from metricas import calcular_enlace
 
 app = Flask(__name__)
 
 # Caminho absoluto para o banco estacao.db na raiz do projeto
 DB_PATH = os.environ.get("ESTACAO_DB", os.path.join(os.path.dirname(__file__), '..', 'estacao.db'))
 
+COLUNAS = "cubesat_id, contador, tensao_bateria, corrente, temperatura, modo, flags, rssi, snr, validos, invalidos, data_hora"
+JANELA_PADRAO = 200
+JANELA_MAXIMA = 5000
+
+
 def inicializar_banco_se_necessario():
-    """Garante que a tabela exista ao iniciar o servidor web."""
+    """Garante que a tabela exista, com todas as colunas, ao iniciar o servidor web."""
     conexao = sqlite3.connect(DB_PATH)
     cursor = conexao.cursor()
     cursor.execute('''
@@ -23,11 +30,19 @@ def inicializar_banco_se_necessario():
             flags INTEGER,
             rssi INTEGER,
             snr REAL,
+            validos INTEGER,
+            invalidos INTEGER,
             data_hora DATETIME DEFAULT CURRENT_TIMESTAMP
         )
     ''')
+    # Bancos criados antes destas colunas existirem precisam recebe-las aqui
+    colunas = {coluna[1] for coluna in cursor.execute("PRAGMA table_info(pacotes)")}
+    for nova_coluna in ("validos", "invalidos"):
+        if nova_coluna not in colunas:
+            cursor.execute(f"ALTER TABLE pacotes ADD COLUMN {nova_coluna} INTEGER")
     conexao.commit()
     conexao.close()
+
 
 def conectar_db():
     inicializar_banco_se_necessario()
@@ -36,42 +51,33 @@ def conectar_db():
     return conexao
 
 
+def buscar_pacotes(limite=None):
+    """Retorna os pacotes mais recentes em ordem cronológica; sem limite, retorna todos."""
+    conexao = conectar_db()
+    consulta = f"SELECT {COLUNAS} FROM pacotes ORDER BY id DESC"
+    if limite is None:
+        linhas = conexao.execute(consulta).fetchall()
+    else:
+        linhas = conexao.execute(consulta + " LIMIT ?", (limite,)).fetchall()
+    conexao.close()
+    return [dict(linha) for linha in reversed(linhas)]
+
+
 # ==========================================
 # ROTAS DA API JSON
 # ==========================================
 
 @app.route("/api/telemetria/ultima", methods=["GET"])
 def api_ultima_telemetria():
-    conexao = conectar_db()
-    cursor = conexao.cursor()
-    cursor.execute("""
-        SELECT cubesat_id, contador, tensao_bateria, corrente, temperatura, modo, flags, rssi, snr, data_hora
-        FROM pacotes
-        ORDER BY id DESC
-        LIMIT 1
-    """)
-    linha = cursor.fetchone()
-    conexao.close()
-
-    if linha is None:
+    pacotes = buscar_pacotes(1)
+    if not pacotes:
         return jsonify({"erro": "Nenhuma telemetria recebida ainda"}), 404
-
-    return jsonify(dict(linha))
+    return jsonify(pacotes[0])
 
 
 @app.route("/api/telemetria/historico", methods=["GET"])
 def api_historico_recente():
-    conexao = conectar_db()
-    cursor = conexao.cursor()
-    cursor.execute("""
-        SELECT cubesat_id, contador, tensao_bateria, corrente, temperatura, modo, flags, rssi, snr, data_hora
-        FROM pacotes
-        ORDER BY id DESC
-        LIMIT 20
-    """)
-    linhas = cursor.fetchall()
-    conexao.close()
-    return jsonify([dict(linha) for linha in linhas])
+    return jsonify(list(reversed(buscar_pacotes(20))))
 
 
 @app.route("/api/estacao/status", methods=["GET"])
@@ -96,79 +102,26 @@ def api_status_estacao():
     return jsonify(status)
 
 
+@app.route("/api/painel", methods=["GET"])
+def api_painel():
+    """Tudo o que a página precisa em uma consulta, para que os números sempre concordem."""
+    limite = request.args.get("limite", JANELA_PADRAO, type=int)
+    limite = max(1, min(limite, JANELA_MAXIMA))
+    pacotes = buscar_pacotes(limite)
+    return jsonify({
+        "pacotes": pacotes,
+        "enlace_janela": calcular_enlace(pacotes),
+        "enlace_total": calcular_enlace(buscar_pacotes()),
+    })
+
+
 # ==========================================
 # ROTA DO DASHBOARD VISUAL (HTML)
 # ==========================================
 
 @app.route("/")
 def pagina_inicial():
-    conexao = conectar_db()
-    cursor = conexao.cursor()
-    cursor.execute("""
-        SELECT cubesat_id, contador, tensao_bateria, corrente, temperatura, modo, flags, rssi, snr, data_hora
-        FROM pacotes
-        ORDER BY id DESC
-        LIMIT 1
-    """)
-    linha = cursor.fetchone()
-    conexao.close()
-
-    if linha is None:
-        return """
-        <html>
-            <head><title>Estação Terrena LoRa</title></head>
-            <body style="font-family: Arial, sans-serif; margin: 40px; background-color: #f4f4f9;">
-                <h1>Estação Terrena LoRa - LION</h1>
-                <h2>Nenhuma telemetria recebida ainda</h2>
-                <p>Aguardando pacotes da ponte serial/rádio LoRa...</p>
-                <p>Endpoints da API disponíveis:</p>
-                <ul>
-                    <li><a href="/api/telemetria/ultima">/api/telemetria/ultima</a></li>
-                    <li><a href="/api/telemetria/historico">/api/telemetria/historico</a></li>
-                    <li><a href="/api/estacao/status">/api/estacao/status</a></li>
-                </ul>
-            </body>
-        </html>
-        """
-
-    html = f"""
-    <html>
-        <head>
-            <title>Estação Terrena LoRa - Dashboard</title>
-            <style>
-                body {{ font-family: Arial, sans-serif; margin: 40px; background-color: #f4f4f9; }}
-                h1, h2 {{ color: #333; }}
-                ul {{ background: #fff; padding: 20px; border-radius: 8px; width: 450px; list-style-type: none; box-shadow: 0px 0px 10px rgba(0,0,0,0.1); }}
-                li {{ padding: 8px 0; border-bottom: 1px solid #eee; font-size: 16px; }}
-                li:last-child {{ border-bottom: none; }}
-                .api-links {{ margin-top: 20px; }}
-            </style>
-        </head>
-        <body>
-            <h1>Estação Terrena LoRa - LION</h1>
-            <h2>Última Telemetria Recebida</h2>
-            <ul>
-                <li><strong>CubeSat ID:</strong> {linha["cubesat_id"]}</li>
-                <li><strong>Contador:</strong> {linha["contador"]}</li>
-                <li><strong>Tensão da Bateria:</strong> {linha["tensao_bateria"]} V</li>
-                <li><strong>Corrente:</strong> {linha["corrente"]} A</li>
-                <li><strong>Temperatura:</strong> {linha["temperatura"]} °C</li>
-                <li><strong>Modo de Operação:</strong> {linha["modo"]}</li>
-                <li><strong>Flags de Erro:</strong> {linha["flags"]}</li>
-                <li><strong>RSSI:</strong> {linha["rssi"]} dBm</li>
-                <li><strong>SNR:</strong> {linha["snr"]} dB</li>
-                <li><strong>Recebido em:</strong> {linha["data_hora"]}</li>
-            </ul>
-            <div class="api-links">
-                <h3>Links da API:</h3>
-                <p><a href="/api/telemetria/ultima" target="_blank">JSON Última Telemetria</a></p>
-                <p><a href="/api/telemetria/historico" target="_blank">JSON Histórico Recente</a></p>
-                <p><a href="/api/estacao/status" target="_blank">JSON Status da Estação</a></p>
-            </div>
-        </body>
-    </html>
-    """
-    return html
+    return render_template("index.html")
 
 
 if __name__ == "__main__":

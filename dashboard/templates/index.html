@@ -1,0 +1,467 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Estação Terrena LoRa</title>
+<!-- Sem bibliotecas externas: a estação precisa abrir em campo, sem internet. -->
+<style>
+  :root {
+    color-scheme: dark;
+    --pagina: #0d0d0d;
+    --superficie: #1a1a19;
+    --texto: #f0efec;
+    --texto-2: #c3c2b7;
+    --texto-3: #898781;
+    --grade: #2c2c2a;
+    --eixo: #383835;
+    --borda: rgba(255, 255, 255, 0.10);
+    --serie: #3987e5;
+    --bom: #0ca30c;
+    --alerta: #fab219;
+    --critico: #d03b3b;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--pagina);
+    color: var(--texto);
+    font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  main { max-width: 1240px; margin: 0 auto; padding: 24px 16px 48px; }
+  header { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 4px 24px; }
+  h1 { font-size: 22px; font-weight: 600; margin: 0; }
+  h2 { font-size: 13px; font-weight: 600; color: var(--texto-2); margin: 28px 0 10px; }
+  .situacao { color: var(--texto-2); }
+  .situacao .icone { font-weight: 700; margin-right: 4px; }
+  .filtros { display: flex; align-items: center; gap: 8px; margin: 18px 0 0; color: var(--texto-2); }
+  select {
+    background: var(--superficie); color: var(--texto); border: 1px solid var(--borda);
+    border-radius: 6px; padding: 5px 8px; font: inherit;
+  }
+  .aviso {
+    margin: 14px 0 0; padding: 10px 14px; border-radius: 8px;
+    background: var(--superficie); border: 1px solid var(--borda); color: var(--texto-2);
+  }
+  .grade { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); }
+  .blocos { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); }
+  .cartao { background: var(--superficie); border: 1px solid var(--borda); border-radius: 10px; padding: 14px 16px; min-width: 0; }
+  .rotulo { color: var(--texto-2); }
+  .valor { font-size: 26px; font-weight: 600; margin-top: 2px; }
+  .nota { color: var(--texto-3); font-size: 12.5px; margin-top: 2px; }
+  .cartao-grafico header { align-items: baseline; flex-wrap: nowrap; }
+  .cartao-grafico .valor { font-size: 20px; margin: 0; white-space: nowrap; }
+  .grafico { position: relative; margin-top: 6px; transition: opacity .2s; }
+  .grafico svg { display: block; width: 100%; border-radius: 4px; touch-action: pan-y; }
+  .grafico svg:focus-visible { outline: 2px solid var(--serie); outline-offset: 2px; }
+  svg text { fill: var(--texto-3); font-size: 11px; font-variant-numeric: tabular-nums; }
+  .desatualizado .grafico { opacity: .55; }
+  .dica {
+    position: absolute; top: 0; pointer-events: none; z-index: 1; white-space: nowrap;
+    background: var(--pagina); border: 1px solid var(--borda); border-radius: 6px; padding: 5px 9px;
+  }
+  .dica strong { display: block; font-size: 14px; }
+  .dica span { color: var(--texto-2); font-size: 12px; }
+  details { margin-top: 28px; }
+  summary { cursor: pointer; color: var(--texto-2); font-weight: 600; font-size: 13px; }
+  .rolagem { overflow-x: auto; margin-top: 10px; }
+  table { border-collapse: collapse; width: 100%; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  th, td { padding: 6px 12px; text-align: right; border-bottom: 1px solid var(--grade); }
+  th { color: var(--texto-2); font-weight: 600; }
+  th:first-child, td:first-child { text-align: left; }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>Estação Terrena LoRa</h1>
+    <div class="situacao" id="situacao" role="status"></div>
+  </header>
+
+  <div class="filtros">
+    <label for="janela">Mostrar os últimos</label>
+    <select id="janela">
+      <option value="60">60 pacotes</option>
+      <option value="200" selected>200 pacotes</option>
+      <option value="1000">1.000 pacotes</option>
+      <option value="5000">5.000 pacotes</option>
+    </select>
+  </div>
+
+  <div class="aviso" id="aviso" hidden></div>
+
+  <div id="conteudo" hidden>
+    <h2>Confiabilidade do enlace</h2>
+    <section class="blocos" id="blocos"></section>
+
+    <h2>Energia e temperatura</h2>
+    <section class="grade" id="graficos-satelite"></section>
+
+    <h2>Sinal de rádio</h2>
+    <section class="grade" id="graficos-radio"></section>
+
+    <details>
+      <summary>Tabela de pacotes</summary>
+      <div class="rolagem">
+        <table>
+          <thead><tr id="tabela-cabecalho"></tr></thead>
+          <tbody id="tabela-corpo"></tbody>
+        </table>
+      </div>
+      <p class="nota" id="tabela-nota"></p>
+    </details>
+  </div>
+</main>
+
+<script>
+const INTERVALO_ATUALIZACAO_MS = 2000;
+const SEM_PACOTES_APOS_MS = 15000;
+const LINHAS_NA_TABELA = 200;
+const ALTURA = 170, MARGEM = { topo: 10, direita: 12, base: 22, esquerda: 44 };
+const SVG_NS = "http://www.w3.org/2000/svg";
+
+const MEDIDAS = {
+  "graficos-satelite": [
+    { campo: "tensao_bateria", nome: "Tensão da bateria", unidade: "V", casas: 2 },
+    { campo: "corrente", nome: "Corrente", unidade: "A", casas: 2 },
+    { campo: "temperatura", nome: "Temperatura", unidade: "°C", casas: 1 },
+  ],
+  "graficos-radio": [
+    { campo: "rssi", nome: "RSSI", unidade: "dBm", casas: 0 },
+    { campo: "snr", nome: "SNR", unidade: "dB", casas: 1 },
+  ],
+};
+
+const el = (id) => document.getElementById(id);
+const numero = (v, casas = 0) =>
+  v.toLocaleString("pt-BR", { minimumFractionDigits: casas, maximumFractionDigits: casas });
+const comUnidade = (v, m) => (v === null || v === undefined ? "–" : `${numero(v, m.casas)} ${m.unidade}`);
+const instante = (texto) => Date.parse(texto.replace(" ", "T") + "Z"); // SQLite grava em UTC
+const hora = (ms) => new Date(ms).toLocaleTimeString("pt-BR");
+
+function criarSvg(nome, atributos = {}, pai = null) {
+  const no = document.createElementNS(SVG_NS, nome);
+  for (const [chave, valor] of Object.entries(atributos)) no.setAttribute(chave, valor);
+  if (pai) pai.appendChild(no);
+  return no;
+}
+
+function divisoesY(minimo, maximo) {
+  if (minimo === maximo) { minimo -= 1; maximo += 1; }
+  const bruto = (maximo - minimo) / 3;
+  const potencia = 10 ** Math.floor(Math.log10(bruto));
+  const passo = [1, 2, 2.5, 5, 10].find((f) => f * potencia >= bruto) * potencia;
+  const inicio = Math.floor(minimo / passo) * passo;
+  const fim = Math.ceil(maximo / passo) * passo;
+  const valores = [];
+  for (let v = inicio; v <= fim + passo / 2; v += passo) valores.push(Number(v.toFixed(6)));
+  return { valores, inicio, fim, casas: Math.max(0, -Math.floor(Math.log10(passo) + 1e-9)) + (passo / potencia === 2.5 ? 1 : 0) };
+}
+
+// O banco guarda segundos inteiros; sem isto, pacotes do mesmo segundo viram um risco vertical.
+function espalharNoMesmoSegundo(pontos) {
+  for (let inicio = 0; inicio < pontos.length;) {
+    let fim = inicio;
+    while (fim < pontos.length && pontos[fim].t === pontos[inicio].t) fim++;
+    const quantidade = fim - inicio;
+    for (let i = inicio; i < fim; i++) pontos[i].t += (i - inicio) / quantidade * 1000;
+    inicio = fim;
+  }
+}
+
+class Grafico {
+  constructor(pai, medida) {
+    this.medida = medida;
+    this.pontos = [];
+    this.selecionado = null;
+
+    const cartao = document.createElement("article");
+    cartao.className = "cartao cartao-grafico";
+    const topo = document.createElement("header");
+    const nome = document.createElement("div");
+    nome.className = "rotulo";
+    nome.textContent = `${medida.nome} (${medida.unidade})`;
+    this.atual = document.createElement("div");
+    this.atual.className = "valor";
+    topo.append(nome, this.atual);
+
+    this.area = document.createElement("div");
+    this.area.className = "grafico";
+    this.svg = criarSvg("svg", { height: ALTURA, tabindex: 0, role: "img", "aria-label": `Gráfico de ${medida.nome}. Use as setas para percorrer os pacotes.` });
+    this.dica = document.createElement("div");
+    this.dica.className = "dica";
+    this.dica.hidden = true;
+    this.area.append(this.svg, this.dica);
+    cartao.append(topo, this.area);
+    pai.appendChild(cartao);
+
+    this.svg.addEventListener("pointermove", (e) => this.selecionarPorX(e.clientX));
+    this.svg.addEventListener("pointerleave", () => this.selecionar(null));
+    this.svg.addEventListener("blur", () => this.selecionar(null));
+    this.svg.addEventListener("keydown", (e) => this.aoTeclar(e));
+    new ResizeObserver(() => this.desenhar()).observe(this.area);
+  }
+
+  atualizar(pacotes) {
+    const m = this.medida;
+    const anterior = this.selecionado === null ? null : this.pontos[this.selecionado]?.pacote;
+    this.pontos = pacotes
+      .filter((p) => p[m.campo] !== null && p[m.campo] !== undefined)
+      .map((p) => ({ t: instante(p.data_hora), v: p[m.campo], pacote: p }));
+    espalharNoMesmoSegundo(this.pontos);
+    this.atual.textContent = this.pontos.length ? comUnidade(this.pontos.at(-1).v, m) : "–";
+    this.selecionado = anterior ? this.pontos.findIndex((p) => p.pacote.contador === anterior.contador && p.pacote.data_hora === anterior.data_hora) : null;
+    if (this.selecionado === -1) this.selecionado = null;
+    this.desenhar();
+  }
+
+  desenhar() {
+    const svg = this.svg;
+    svg.replaceChildren();
+    const largura = this.area.clientWidth;
+    if (!largura) return;
+    svg.setAttribute("viewBox", `0 0 ${largura} ${ALTURA}`);
+    const baseY = ALTURA - MARGEM.base;
+
+    if (!this.pontos.length) {
+      const aviso = criarSvg("text", { x: largura / 2, y: ALTURA / 2, "text-anchor": "middle" }, svg);
+      aviso.textContent = "Sem dados nesta janela";
+      this.escalaX = null;
+      this.dica.hidden = true;
+      return;
+    }
+
+    const valores = this.pontos.map((p) => p.v);
+    const y = divisoesY(Math.min(...valores), Math.max(...valores));
+    const tempos = this.pontos.map((p) => p.t);
+    const tMin = Math.min(...tempos), tMax = Math.max(...tempos);
+    const faixaX = largura - MARGEM.esquerda - MARGEM.direita;
+    this.escalaX = (t) => tMax === tMin ? MARGEM.esquerda + faixaX : MARGEM.esquerda + (t - tMin) / (tMax - tMin) * faixaX;
+    this.escalaY = (v) => baseY - (v - y.inicio) / (y.fim - y.inicio) * (baseY - MARGEM.topo);
+
+    for (const v of y.valores) {
+      const py = this.escalaY(v);
+      const zero = v === 0;
+      criarSvg("line", { x1: MARGEM.esquerda, x2: largura - MARGEM.direita, y1: py, y2: py, stroke: zero ? "var(--eixo)" : "var(--grade)", "stroke-width": 1 }, svg);
+      const rotulo = criarSvg("text", { x: MARGEM.esquerda - 6, y: py + 4, "text-anchor": "end" }, svg);
+      rotulo.textContent = numero(v, y.casas);
+    }
+
+    const divisoesX = tMax === tMin ? [tMax] : [tMin, (tMin + tMax) / 2, tMax];
+    divisoesX.forEach((t, i) => {
+      const ancora = divisoesX.length === 1 || i === divisoesX.length - 1 ? "end" : i === 0 ? "start" : "middle";
+      const rotulo = criarSvg("text", { x: this.escalaX(t), y: ALTURA - 6, "text-anchor": ancora }, svg);
+      rotulo.textContent = hora(t);
+    });
+
+    // Interrompe a linha onde faltam pacotes: uma lacuna visível, nunca uma ligação inventada.
+    const trechos = [];
+    let trecho = [];
+    this.pontos.forEach((p, i) => {
+      const anterior = this.pontos[i - 1];
+      if (anterior && (p.pacote.contador - anterior.pacote.contador + 65536) % 65536 !== 1) {
+        trechos.push(trecho);
+        trecho = [];
+      }
+      trecho.push(p);
+    });
+    trechos.push(trecho);
+
+    const ponto = (p) => `${this.escalaX(p.t).toFixed(1)},${this.escalaY(p.v).toFixed(1)}`;
+    for (const t of trechos) {
+      if (t.length === 1) {
+        criarSvg("circle", { cx: this.escalaX(t[0].t), cy: this.escalaY(t[0].v), r: 1.5, fill: "var(--serie)" }, svg);
+      } else {
+        criarSvg("polyline", { points: t.map(ponto).join(" "), fill: "none", stroke: "var(--serie)", "stroke-width": 2, "stroke-linejoin": "round", "stroke-linecap": "round" }, svg);
+      }
+    }
+
+    const ultimo = this.pontos.at(-1);
+    this.marcar(ultimo, svg);
+
+    if (this.selecionado !== null) this.mostrarSelecao();
+    else this.dica.hidden = true;
+  }
+
+  marcar(p, svg) {
+    return criarSvg("circle", { cx: this.escalaX(p.t), cy: this.escalaY(p.v), r: 4, fill: "var(--serie)", stroke: "var(--superficie)", "stroke-width": 2 }, svg);
+  }
+
+  selecionarPorX(clienteX) {
+    if (!this.escalaX) return;
+    const x = clienteX - this.svg.getBoundingClientRect().left;
+    let melhor = 0, distancia = Infinity;
+    this.pontos.forEach((p, i) => {
+      const d = Math.abs(this.escalaX(p.t) - x);
+      if (d <= distancia) { distancia = d; melhor = i; }
+    });
+    this.selecionar(melhor);
+  }
+
+  selecionar(indice) {
+    if (indice === this.selecionado) return;
+    this.selecionado = indice;
+    this.desenhar();
+  }
+
+  aoTeclar(e) {
+    if (!this.pontos.length || !["ArrowLeft", "ArrowRight"].includes(e.key)) return;
+    e.preventDefault();
+    const atual = this.selecionado ?? this.pontos.length;
+    const passo = e.key === "ArrowLeft" ? -1 : 1;
+    this.selecionar(Math.max(0, Math.min(this.pontos.length - 1, atual + passo)));
+  }
+
+  mostrarSelecao() {
+    const p = this.pontos[this.selecionado];
+    if (!p) return;
+    const x = this.escalaX(p.t);
+    criarSvg("line", { x1: x, x2: x, y1: MARGEM.topo, y2: ALTURA - MARGEM.base, stroke: "var(--texto-3)", "stroke-width": 1 }, this.svg);
+    this.marcar(p, this.svg);
+
+    const valor = document.createElement("strong");
+    valor.textContent = comUnidade(p.v, this.medida);
+    const detalhe = document.createElement("span");
+    detalhe.textContent = `Pacote ${p.pacote.contador} · ${hora(p.t)}`;
+    this.dica.replaceChildren(valor, detalhe);
+    this.dica.hidden = false;
+
+    const largura = this.area.clientWidth, larguraDica = this.dica.offsetWidth;
+    const esquerda = x + 12 + larguraDica > largura ? x - 12 - larguraDica : x + 12;
+    this.dica.style.left = `${Math.max(0, esquerda)}px`;
+  }
+}
+
+const graficos = [];
+for (const [secao, medidas] of Object.entries(MEDIDAS)) {
+  for (const medida of medidas) graficos.push(new Grafico(el(secao), medida));
+}
+
+function bloco(rotulo, valor, nota) {
+  const cartao = document.createElement("article");
+  cartao.className = "cartao";
+  const r = document.createElement("div"); r.className = "rotulo"; r.textContent = rotulo;
+  const v = document.createElement("div"); v.className = "valor"; v.textContent = valor;
+  const n = document.createElement("div"); n.className = "nota"; n.textContent = nota;
+  cartao.append(r, v, n);
+  return cartao;
+}
+
+const porcentagem = (taxa) => taxa === null ? "–" : `${numero(taxa * 100, 1)}%`;
+
+function desenharBlocos(janela, total, ultimo) {
+  const interrupcoes = janela.interrupcoes ? ` · ${numero(janela.interrupcoes)} interrupção(ões) fora da conta` : "";
+  el("blocos").replaceChildren(
+    bloco("Taxa de recepção", porcentagem(janela.taxa_recepcao), `Histórico completo: ${porcentagem(total.taxa_recepcao)} de ${numero(total.esperados)}`),
+    bloco("Recebidos", numero(janela.recebidos), `de ${numero(janela.esperados)} esperados${interrupcoes}`),
+    bloco("Corrompidos", numero(janela.corrompidos), "Descartados pelo CRC"),
+    bloco("Não chegaram", numero(janela.nao_chegaram), "Lacunas no contador, sem os corrompidos"),
+    bloco("Estado do CubeSat", `Modo ${ultimo.modo ?? "–"}`, `Flags: ${ultimo.flags === null ? "–" : "0x" + ultimo.flags.toString(16).toUpperCase().padStart(2, "0")}`),
+  );
+}
+
+const COLUNAS_TABELA = [
+  ["Hora", (p) => hora(instante(p.data_hora))],
+  ["Pacote", (p) => p.contador],
+  ["Tensão (V)", (p) => formatar(p.tensao_bateria, 2)],
+  ["Corrente (A)", (p) => formatar(p.corrente, 2)],
+  ["Temperatura (°C)", (p) => formatar(p.temperatura, 2)],
+  ["RSSI (dBm)", (p) => formatar(p.rssi, 0)],
+  ["SNR (dB)", (p) => formatar(p.snr, 1)],
+  ["Modo", (p) => p.modo ?? "–"],
+  ["Flags", (p) => p.flags ?? "–"],
+];
+const formatar = (v, casas) => (v === null || v === undefined ? "–" : numero(v, casas));
+
+function desenharTabela(pacotes) {
+  el("tabela-cabecalho").replaceChildren(...COLUNAS_TABELA.map(([nome]) => {
+    const th = document.createElement("th");
+    th.scope = "col";
+    th.textContent = nome;
+    return th;
+  }));
+  const recentes = pacotes.slice(-LINHAS_NA_TABELA).reverse();
+  el("tabela-corpo").replaceChildren(...recentes.map((p) => {
+    const tr = document.createElement("tr");
+    for (const [, valor] of COLUNAS_TABELA) {
+      const td = document.createElement("td");
+      td.textContent = valor(p);
+      tr.appendChild(td);
+    }
+    return tr;
+  }));
+  el("tabela-nota").textContent = pacotes.length > LINHAS_NA_TABELA ? `Mostrando os ${LINHAS_NA_TABELA} pacotes mais recentes da janela.` : "";
+}
+
+function desenharSituacao(ultimoMs) {
+  const situacao = el("situacao");
+  const icone = document.createElement("span");
+  icone.className = "icone";
+  const texto = document.createElement("span");
+  if (ultimoMs === null) {
+    icone.textContent = "…"; icone.style.color = "var(--texto-3)";
+    texto.textContent = "Aguardando o primeiro pacote";
+  } else {
+    const atraso = Date.now() - ultimoMs;
+    if (atraso > SEM_PACOTES_APOS_MS) {
+      const segundos = Math.round(atraso / 1000);
+      const quanto = segundos < 120 ? `${segundos} s` : segundos < 7200 ? `${Math.round(segundos / 60)} min` : `${Math.round(segundos / 3600)} h`;
+      icone.textContent = "⚠"; icone.style.color = "var(--alerta)";
+      texto.textContent = `Sem pacotes há ${quanto} · último às ${hora(ultimoMs)}`;
+    } else {
+      icone.textContent = "✓"; icone.style.color = "var(--bom)";
+      texto.textContent = `Recebendo · último às ${hora(ultimoMs)}`;
+    }
+  }
+  situacao.replaceChildren(icone, texto);
+}
+
+let requisicaoAtual = 0;
+
+async function atualizar() {
+  const numeroRequisicao = ++requisicaoAtual;
+  try {
+    const resposta = await fetch(`/api/painel?limite=${el("janela").value}`);
+    if (!resposta.ok) throw new Error(`HTTP ${resposta.status}`);
+    const dados = await resposta.json();
+    if (numeroRequisicao !== requisicaoAtual) return; // chegou uma janela mais nova
+
+    document.body.classList.remove("desatualizado");
+    const aviso = el("aviso");
+    const temDados = dados.pacotes.length > 0;
+    el("conteudo").hidden = !temDados;
+    aviso.hidden = temDados;
+    aviso.textContent = "Nenhum pacote gravado ainda. Inicie a ponte serial ou rode python simular.py.";
+
+    if (!temDados) { desenharSituacao(null); return; }
+    const ultimo = dados.pacotes.at(-1);
+    desenharSituacao(instante(ultimo.data_hora));
+    desenharBlocos(dados.enlace_janela, dados.enlace_total, ultimo);
+    graficos.forEach((g) => g.atualizar(dados.pacotes));
+    desenharTabela(dados.pacotes);
+  } catch (erro) {
+    if (numeroRequisicao !== requisicaoAtual) return;
+    document.body.classList.add("desatualizado");
+    const aviso = el("aviso");
+    aviso.hidden = false;
+    aviso.textContent = "Sem conexão com o servidor do dashboard. Os dados abaixo podem estar desatualizados.";
+    const icone = document.createElement("span");
+    icone.className = "icone";
+    icone.textContent = "✕";
+    icone.style.color = "var(--critico)";
+    el("situacao").replaceChildren(icone, "Sem conexão com o servidor");
+  }
+}
+
+// Espera cada resposta antes de agendar a próxima: com o servidor fora do ar a falha pode
+// levar mais que o intervalo, e uma consulta nova descartaria o erro da anterior.
+async function cicloDeAtualizacao() {
+  await atualizar();
+  setTimeout(cicloDeAtualizacao, INTERVALO_ATUALIZACAO_MS);
+}
+
+el("janela").addEventListener("change", atualizar);
+cicloDeAtualizacao();
+</script>
+</body>
+</html>

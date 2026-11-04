@@ -91,16 +91,28 @@ class TestSimulacao(unittest.TestCase):
             "import sys, json; sys.path.insert(0, 'dashboard'); import dashboard as d;"
             "c = d.app.test_client();"
             "print(json.dumps([c.get('/api/estacao/status').get_json(),"
-            " c.get('/api/telemetria/ultima').get_json(), c.get('/').status_code]))"
+            " c.get('/api/telemetria/ultima').get_json(), c.get('/').status_code,"
+            " c.get('/api/painel?limite=1000').get_json()]))"
         )
         saida = subprocess.run(
             [sys.executable, "-c", codigo], cwd=RAIZ, capture_output=True, text=True,
             env=dict(os.environ, ESTACAO_DB=self.banco), check=True,
         ).stdout
-        status, ultima, codigo_http = json.loads(saida)
+        status, ultima, codigo_http, painel = json.loads(saida)
         self.assertEqual(status["total_pacotes_armazenados"], self.validos)
         self.assertEqual(ultima["contador"], self.linhas[-1]["contador"])
         self.assertEqual(codigo_http, 200)
+
+        # O que a simulação perdeu de fato deve bater com o que o painel deduz do banco.
+        # Só as pontas ficam de fora: antes do primeiro e depois do último pacote válido
+        # não existe referência no contador.
+        enlace = painel["enlace_total"]
+        self.assertEqual(painel["enlace_janela"], enlace)
+        self.assertEqual(enlace["recebidos"], self.validos)
+        faltaram = enlace["esperados"] - enlace["recebidos"]
+        self.assertLessEqual(faltaram, self.perdidos + self.invalidos)
+        self.assertGreaterEqual(faltaram, self.perdidos + self.invalidos - 5)
+        self.assertLessEqual(abs(enlace["corrompidos"] - self.invalidos), 5)
 
 
 if __name__ == "__main__":
