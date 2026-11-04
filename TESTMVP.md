@@ -100,6 +100,21 @@ Deixe o T4 rodando por pelo menos 1 hora.
 
 **Passa se:** o sistema continua salvando e exibindo dados até o fim. Registre a taxa de recepção, o RSSI e o SNR médios.
 
+## T7. Ciclo comando e ACK (S6.6)
+
+Com o T4 rodando, use os botões de "Comandos para o CubeSat" no dashboard:
+
+| Comando | Resultado esperado |
+|---|---|
+| Desativar envio periódico | Confirmado; os pacotes param, e o dashboard mostra "Sem pacotes há..." depois de 15 s |
+| Solicitar telemetria | Confirmado; chega um único pacote novo |
+| Ativar envio periódico | Confirmado; os pacotes voltam a cada 2 s |
+| Alterar intervalo para 5 s | Confirmado; os pacotes passam a chegar a cada 5 s |
+| Reiniciar sistema simulado | Confirmado; o contador volta a 0, e o intervalo, a 2 s |
+| Qualquer comando com o CubeSat desligado | "Sem resposta" depois de 10 s |
+
+**Passa se:** todos os resultados acontecem. Se muitos comandos ficarem sem resposta com o enlace bom, aumente `ESPERA_ANTES_DE_RESPONDER_MS` no firmware do CubeSat.
+
 ## Registro
 
 | Teste | Data | Resultado | Evidência |
@@ -110,3 +125,4 @@ Deixe o T4 rodando por pelo menos 1 hora.
 | T4 Ponta a ponta | | | |
 | T5 Falhas | | | |
 | T6 Aceitação | | | |
+| T7 Comandos | | | |
