@@ -80,7 +80,7 @@ def api_status_estacao():
     cursor = conexao.cursor()
     cursor.execute("SELECT COUNT(*) as total FROM pacotes")
     total_result = cursor.fetchone()
-    total_pacotes = total_result["total"] if total_result and "total" in total_result else 0
+    total_pacotes = total_result["total"]
 
     cursor.execute("SELECT data_hora, rssi, snr FROM pacotes ORDER BY id DESC LIMIT 1")
     ultimo = cursor.fetchone()
