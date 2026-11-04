@@ -4,6 +4,7 @@ Uso: python simular.py [opcoes do simulador, como --perda 0.2]
 Os dados vao para estacao_sim.db, recriado a cada execucao, e nunca para estacao.db.
 """
 import os
+import socket
 import subprocess
 import sys
 
@@ -13,7 +14,17 @@ PORTA_SIMULADOR = 7000
 PORTA_DASHBOARD = 5000
 
 
+def porta_em_uso(porta):
+    with socket.socket() as teste:
+        teste.settimeout(1)
+        return teste.connect_ex(("127.0.0.1", porta)) == 0
+
+
 def main():
+    # No Windows, dois servidores conseguem usar a mesma porta e o banco seria recriado por cima
+    if porta_em_uso(PORTA_DASHBOARD):
+        sys.exit(f"A porta {PORTA_DASHBOARD} já está em uso: feche a outra execução (Ctrl+C no terminal dela) e tente de novo.")
+
     if os.path.exists(BANCO):
         os.remove(BANCO)
 
