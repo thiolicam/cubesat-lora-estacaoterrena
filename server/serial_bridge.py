@@ -32,9 +32,16 @@ def inicializar_banco():
             flags INTEGER,
             rssi REAL,
             snr REAL,
+            validos INTEGER,
+            invalidos INTEGER,
             data_hora DATETIME DEFAULT CURRENT_TIMESTAMP
         )
     ''')
+    # Bancos criados antes destas colunas existirem precisam recebe-las aqui
+    colunas = {coluna[1] for coluna in cursor.execute("PRAGMA table_info(pacotes)")}
+    for nova_coluna in ("validos", "invalidos"):
+        if nova_coluna not in colunas:
+            cursor.execute(f"ALTER TABLE pacotes ADD COLUMN {nova_coluna} INTEGER")
     conexao.commit()
     conexao.close()
 
@@ -44,8 +51,8 @@ def salvar_no_banco(dados):
         conexao = sqlite3.connect(DB_PATH)
         cursor = conexao.cursor()
         cursor.execute('''
-            INSERT INTO pacotes (cubesat_id, contador, tensao_bateria, corrente, temperatura, modo, flags, rssi, snr)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO pacotes (cubesat_id, contador, tensao_bateria, corrente, temperatura, modo, flags, rssi, snr, validos, invalidos)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ''', (
             str(dados.get("cubesat_id", "LION-1")),
             int(dados.get("contador", 0)),
@@ -55,7 +62,9 @@ def salvar_no_banco(dados):
             str(dados.get("modo", "IDLE")),
             int(dados.get("flags", 0)),
             float(dados.get("rssi", 0.0)),
-            float(dados.get("snr", 0.0))
+            float(dados.get("snr", 0.0)),
+            dados.get("validos"),
+            dados.get("invalidos")
         ))
         conexao.commit()
         conexao.close()
