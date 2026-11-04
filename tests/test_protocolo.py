@@ -31,6 +31,15 @@ class TestProtocolo(unittest.TestCase):
         self.assertEqual(struct.unpack(">h", pacote[6:8])[0], 372)
         self.assertEqual(struct.unpack(">H", pacote[14:16])[0], crc16(pacote[:14]))
 
+    def test_exemplo_de_docs_protocolo_esta_correto(self):
+        pacote = bytes.fromhex("AA 01 01 01 00 2A 01 74 FD F3 FF 83 01 01 AE FF")
+        t = decodificar_pacote(pacote)
+        self.assertEqual(
+            (t["cubesat_id"], t["contador"], t["tensao_bateria"], t["temperatura"],
+             t["corrente"], t["modo"], t["flags"]),
+            (1, 42, 3.72, -5.25, -1.25, 1, 1),
+        )
+
     def test_ida_e_volta_preserva_os_valores(self):
         t = decodificar_pacote(pacote_exemplo())
         self.assertEqual(

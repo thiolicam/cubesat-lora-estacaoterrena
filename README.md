@@ -3,10 +3,11 @@
 Protótipo de estação terrena para recepção de telemetria e envio de comandos via LoRa (ESP32 + RFM95).
 
 ## Estrutura do Projeto
-- `firmware/`: Código C/C++ do ESP32 para o CubeSat e Estação Terrena
-- `server/`: Broker MQTT e scripts do banco de dados SQLite
-- `dashboard/`: Interface gráfica em Flask
-- `docs/`: Especificação do protocolo e documentação
+- `firmware/`: Código C/C++ do ESP32 para o CubeSat, a estação terrena e o teste de pinagem
+- `server/`: Ponte serial (MQTT e SQLite), protocolo e simulador
+- `dashboard/`: API e interface web em Flask
+- `docs/`: Especificação do protocolo e tópicos MQTT
+- `TESTMVP.md`: Roteiro de teste de bancada
 - `tests/`: Testes automatizados
 
 ## Como rodar sem as placas
