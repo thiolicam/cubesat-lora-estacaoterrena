@@ -18,7 +18,7 @@ pip install -r requirements.txt
 python simular.py
 ```
 
-O dashboard fica em http://localhost:5000. Para testar um enlace pior, use por exemplo `python simular.py --perda 0.2 --corrupcao 0.1`. Sem o Mosquitto, os dados só não são publicados no MQTT.
+O dashboard fica em http://localhost:5000. Para testar um enlace pior, use por exemplo `python simular.py --perda 0.2 --corrupcao 0.1`. Para simular a diversidade, use `--receptores 3`. Sem o Mosquitto, os dados só não são publicados no MQTT.
 
 ## Broker MQTT
 Instale o Mosquitto, que no Windows roda como serviço e já aceita conexões locais:

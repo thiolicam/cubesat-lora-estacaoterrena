@@ -169,6 +169,16 @@ Se a ponte cair sem avisar, o broker publica `offline` no lugar dela (mensagem "
 
 O broker é o Mosquitto, com a configuração de `server/mosquitto.conf`. A ponte usa `127.0.0.1:1883` por padrão; `ESTACAO_MQTT_HOST` e `ESTACAO_MQTT_PORTA` mudam esses valores. Os tópicos foram testados com o Mosquitto 2.1.2 e assinantes reais, usando dados simulados.
 
+## API de estatísticas
+
+| Rota | Retorna |
+|---|---|
+| `GET /api/painel?limite=&receptor=&frequencia=` | Pacotes da janela, estatísticas da janela e do histórico, comandos e opções de filtro |
+| `GET /api/estatisticas?receptor=&frequencia=` | Uma linha por receptor e frequência, em todo o histórico |
+| `GET /api/estatisticas?periodo=hora` | O mesmo, hora a hora; o período está em UTC |
+
+As estatísticas trazem `esperados`, `recebidos`, `corrompidos`, `nao_chegaram`, `interrupcoes`, `taxa_recepcao`, `rssi_medio` e `snr_medio`. Elas são calculadas na hora a partir da tabela `pacotes`, sem uma tabela própria, porque as perdas dependem da sequência dos contadores de cada receptor. Sem filtro, os totais somam os receptores.
+
 ## Banco de dados
 
 A tabela `pacotes` é definida em `server/banco.py` e guarda uma linha por pacote válido.
