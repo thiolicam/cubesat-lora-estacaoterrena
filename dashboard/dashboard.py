@@ -1,51 +1,28 @@
 import sqlite3
 import os
+import sys
 from flask import Flask, jsonify, render_template, request
 
 from metricas import calcular_enlace
+
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'server'))
+from banco import preparar_banco
 
 app = Flask(__name__)
 
 # Caminho absoluto para o banco estacao.db na raiz do projeto
 DB_PATH = os.environ.get("ESTACAO_DB", os.path.join(os.path.dirname(__file__), '..', 'estacao.db'))
 
-COLUNAS = "cubesat_id, contador, tensao_bateria, corrente, temperatura, modo, flags, rssi, snr, validos, invalidos, data_hora"
+COLUNAS = (
+    "cubesat_id, tipo, contador, tensao_bateria, corrente, temperatura, modo, flags, rssi, snr, "
+    "validos, invalidos, frequencia_mhz, receptor_id, data_hora"
+)
 JANELA_PADRAO = 200
 JANELA_MAXIMA = 5000
 
 
-def inicializar_banco_se_necessario():
-    """Garante que a tabela exista, com todas as colunas, ao iniciar o servidor web."""
-    conexao = sqlite3.connect(DB_PATH)
-    cursor = conexao.cursor()
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS pacotes (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            cubesat_id INTEGER,
-            contador INTEGER,
-            tensao_bateria REAL,
-            corrente REAL,
-            temperatura REAL,
-            modo INTEGER,
-            flags INTEGER,
-            rssi INTEGER,
-            snr REAL,
-            validos INTEGER,
-            invalidos INTEGER,
-            data_hora DATETIME DEFAULT CURRENT_TIMESTAMP
-        )
-    ''')
-    # Bancos criados antes destas colunas existirem precisam recebe-las aqui
-    colunas = {coluna[1] for coluna in cursor.execute("PRAGMA table_info(pacotes)")}
-    for nova_coluna in ("validos", "invalidos"):
-        if nova_coluna not in colunas:
-            cursor.execute(f"ALTER TABLE pacotes ADD COLUMN {nova_coluna} INTEGER")
-    conexao.commit()
-    conexao.close()
-
-
 def conectar_db():
-    inicializar_banco_se_necessario()
+    preparar_banco(DB_PATH)
     conexao = sqlite3.connect(DB_PATH)
     conexao.row_factory = sqlite3.Row
     return conexao

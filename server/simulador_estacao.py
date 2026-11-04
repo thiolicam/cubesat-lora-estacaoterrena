@@ -13,6 +13,8 @@ import time
 from protocolo import decodificar_pacote, montar_pacote
 
 PACOTES_POR_ORBITA = 60
+FREQUENCIA_MHZ = 915.0
+RECEPTOR_ID = 1
 ESPERA_ABERTURA_SERIAL = 0.5  # segundos
 
 # Significados provisorios: o protocolo ainda nao define modos e flags.
@@ -49,10 +51,11 @@ def linhas_recebidas(pacote, validos, invalidos, rng):
     rssi = rng.randint(-105, -80)
     snr = round(rng.uniform(-2.0, 10.0), 1)
     json_linha = (
-        f'{{"cubesat_id": {t["cubesat_id"]}, "contador": {t["contador"]}, '
+        f'{{"cubesat_id": {t["cubesat_id"]}, "tipo": {t["tipo"]}, "contador": {t["contador"]}, '
         f'"tensao_bateria": {t["tensao_bateria"]:.2f}, "corrente": {t["corrente"]:.2f}, '
         f'"temperatura": {t["temperatura"]:.2f}, "modo": {t["modo"]}, "flags": {t["flags"]}, '
-        f'"rssi": {rssi}, "snr": {snr:.1f}, "validos": {validos}, "invalidos": {invalidos}}}'
+        f'"rssi": {rssi}, "snr": {snr:.1f}, "validos": {validos}, "invalidos": {invalidos}, '
+        f'"frequencia_mhz": {FREQUENCIA_MHZ:.1f}, "receptor_id": {RECEPTOR_ID}, "raw": "{pacote.hex().upper()}"}}'
     )
     return [
         "========================================",

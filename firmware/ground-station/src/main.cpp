@@ -24,6 +24,9 @@
 #define CODING_RATE       5
 #define POTENCIA_DBM      17
 
+// Identifica este receptor quando houver mais de uma estacao (diversidade, S7.1)
+#define RECEPTOR_ID       1
+
 // =====================
 // Estrutura do Protocolo (16 bytes)
 // =====================
@@ -150,8 +153,13 @@ void loop()
                 Serial.println("========================================");
 
                 // Saída estruturada estritamente em JSON para a ponte serial (`serial_bridge.py`)
-                Serial.printf("{\"cubesat_id\": %d, \"contador\": %d, \"tensao_bateria\": %.2f, \"corrente\": %.2f, \"temperatura\": %.2f, \"modo\": %d, \"flags\": %d, \"rssi\": %d, \"snr\": %.1f, \"validos\": %lu, \"invalidos\": %lu}\n",
-                    pacote.cubesat_id, contador, tensao, corrente, temperatura, modo, flags, rssi, snr, pacotesValidos, pacotesInvalidos);
+                char bruto[2 * sizeof(TelemetryPacket) + 1];
+                const uint8_t *bytesPacote = (const uint8_t*)&pacote;
+                for (size_t i = 0; i < sizeof(TelemetryPacket); i++) {
+                    sprintf(&bruto[2 * i], "%02X", bytesPacote[i]);
+                }
+                Serial.printf("{\"cubesat_id\": %d, \"tipo\": %d, \"contador\": %d, \"tensao_bateria\": %.2f, \"corrente\": %.2f, \"temperatura\": %.2f, \"modo\": %d, \"flags\": %d, \"rssi\": %d, \"snr\": %.1f, \"validos\": %lu, \"invalidos\": %lu, \"frequencia_mhz\": %.1f, \"receptor_id\": %d, \"raw\": \"%s\"}\n",
+                    pacote.cubesat_id, pacote.tipo, contador, tensao, corrente, temperatura, modo, flags, rssi, snr, pacotesValidos, pacotesInvalidos, FREQUENCIA / 1E6, RECEPTOR_ID, bruto);
 
             } else {
                 pacotesInvalidos++;

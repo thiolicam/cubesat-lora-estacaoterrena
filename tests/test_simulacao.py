@@ -30,6 +30,7 @@ class TestSimulacao(unittest.TestCase):
             os.environ,
             ESTACAO_DB=cls.banco,
             ESTACAO_SERIAL=f"socket://127.0.0.1:{porta}",
+            ESTACAO_MQTT_PORTA=str(porta_livre()),  # sem broker: nao publica em nenhum broker real
             PYTHONIOENCODING="utf-8",
         )
         simulador = subprocess.Popen(
@@ -83,8 +84,12 @@ class TestSimulacao(unittest.TestCase):
         self.assertIsInstance(self.linhas[0]["rssi"], int)
 
     def test_ponte_nao_afirma_publicar_sem_broker(self):
-        conectado = "Conectado ao Broker" in self.saida_ponte
-        self.assertEqual("Telemetria real publicada" in self.saida_ponte, conectado)
+        self.assertNotIn("Telemetria publicada", self.saida_ponte)
+        self.assertIn("não publicado", self.saida_ponte)
+
+    def test_metadados_de_recepcao_chegam_ao_banco(self):
+        ultima = self.linhas[-1]
+        self.assertEqual((ultima["tipo"], ultima["frequencia_mhz"], ultima["receptor_id"]), (1, 915.0, 1))
 
     def test_dashboard_le_o_que_a_ponte_gravou(self):
         codigo = (

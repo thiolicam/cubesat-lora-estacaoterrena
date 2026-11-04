@@ -1,127 +1,143 @@
-import serial
 import json
-import sqlite3
 import os
-import paho.mqtt.client as mqtt
+import sqlite3
+import threading
 
-# 1. Configurações da Porta Serial (Ajuste para a porta real do seu ESP32 da Estação Terrena)
+import paho.mqtt.client as mqtt
+import serial
+
+from banco import preparar_banco
+
+# 1. Porta serial da Estação Terrena
 # Ex: "COM3" no Windows, "/dev/ttyUSB0" no Linux ou "socket://127.0.0.1:7000" no simulador
 PORTA_SERIAL = os.environ.get("ESTACAO_SERIAL", "COM3")
 BAUD_RATE = 115200
 
-# 2. Configurações do MQTT Broker local
+# 2. Broker MQTT local e tópicos definidos em docs/protocolo.md
 BROKER = "localhost"
-PORTA = 1883
-TOPICO_MQTT = "cubesat/telemetry/parsed"
+PORTA_MQTT = int(os.environ.get("ESTACAO_MQTT_PORTA", "1883"))
+TOPICO_BRUTO = "cubesat/telemetry/raw"
+TOPICO_DECODIFICADO = "cubesat/telemetry/parsed"
+TOPICO_ENLACE = "groundstation/link/stats"
+TOPICO_STATUS = "groundstation/status"
+ESPERA_CONEXAO_MQTT = 2  # segundos
 
-# 3. Caminho do banco de dados SQLite unificado (estacao.db na raiz do projeto)
+# 3. Banco de dados SQLite unificado (estacao.db na raiz do projeto)
 DB_PATH = os.environ.get("ESTACAO_DB", os.path.join(os.path.dirname(__file__), '..', 'estacao.db'))
 
-def inicializar_banco():
-    """Garante que a tabela 'pacotes' existe no SQLite com todas as colunas reais."""
-    conexao = sqlite3.connect(DB_PATH)
-    cursor = conexao.cursor()
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS pacotes (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            cubesat_id INTEGER,
-            contador INTEGER,
-            tensao_bateria REAL,
-            corrente REAL,
-            temperatura REAL,
-            modo INTEGER,
-            flags INTEGER,
-            rssi INTEGER,
-            snr REAL,
-            validos INTEGER,
-            invalidos INTEGER,
-            data_hora DATETIME DEFAULT CURRENT_TIMESTAMP
-        )
-    ''')
-    # Bancos criados antes destas colunas existirem precisam recebe-las aqui
-    colunas = {coluna[1] for coluna in cursor.execute("PRAGMA table_info(pacotes)")}
-    for nova_coluna in ("validos", "invalidos"):
-        if nova_coluna not in colunas:
-            cursor.execute(f"ALTER TABLE pacotes ADD COLUMN {nova_coluna} INTEGER")
-    conexao.commit()
-    conexao.close()
+CAMPOS_ENLACE = ("receptor_id", "frequencia_mhz", "rssi", "snr", "validos", "invalidos")
+CAMPOS_BANCO = (
+    "cubesat_id", "tipo", "contador", "tensao_bateria", "corrente", "temperatura", "modo",
+    "flags", "rssi", "snr", "validos", "invalidos", "frequencia_mhz", "receptor_id",
+)
+
+
+def mensagem_status(estado):
+    return json.dumps({"estado": estado, "porta_serial": PORTA_SERIAL})
+
+
+def mensagens_telemetria(dados):
+    """Monta os pares (tópico, conteúdo) de um pacote recebido."""
+    decodificado = {campo: valor for campo, valor in dados.items() if campo != "raw"}
+    enlace = {campo: dados.get(campo) for campo in CAMPOS_ENLACE}
+    mensagens = [
+        (TOPICO_DECODIFICADO, json.dumps(decodificado)),
+        (TOPICO_ENLACE, json.dumps(enlace)),
+    ]
+    if dados.get("raw"):
+        mensagens.insert(0, (TOPICO_BRUTO, dados["raw"]))
+    return mensagens
+
 
 def salvar_no_banco(dados):
-    """Insere o pacote real de telemetria decodificado pelo ESP32 no SQLite."""
+    """Insere o pacote no SQLite. Campo ausente fica vazio: nunca inventar um valor de telemetria."""
     try:
         conexao = sqlite3.connect(DB_PATH)
-        cursor = conexao.cursor()
-        cursor.execute('''
-            INSERT INTO pacotes (cubesat_id, contador, tensao_bateria, corrente, temperatura, modo, flags, rssi, snr, validos, invalidos)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ''', (
-            # Campo ausente fica vazio no banco: nunca inventar um valor de telemetria
-            dados.get("cubesat_id"),
-            dados.get("contador"),
-            dados.get("tensao_bateria"),
-            dados.get("corrente"),
-            dados.get("temperatura"),
-            dados.get("modo"),
-            dados.get("flags"),
-            dados.get("rssi"),
-            dados.get("snr"),
-            dados.get("validos"),
-            dados.get("invalidos")
-        ))
+        marcadores = ", ".join("?" for _ in CAMPOS_BANCO)
+        conexao.execute(
+            f"INSERT INTO pacotes ({', '.join(CAMPOS_BANCO)}) VALUES ({marcadores})",
+            [dados.get(campo) for campo in CAMPOS_BANCO],
+        )
         conexao.commit()
         conexao.close()
         print(f"💾 [SQLite] Pacote gravado com sucesso em {os.path.basename(DB_PATH)}!")
     except Exception as e:
-        print(f"❌ [Erro SQLite] Falha ao inserir dados reais: {e}")
+        print(f"❌ [Erro SQLite] Falha ao inserir o pacote: {e}")
 
-# Inicializa o banco de dados antes de iniciar a ponte
-inicializar_banco()
 
-print("--- Iniciando Ponte Serial (Dados Reais) -> MQTT & SQLite ---")
+def publicar_telemetria(cliente, dados):
+    resultados = [cliente.publish(topico, conteudo) for topico, conteudo in mensagens_telemetria(dados)]
+    if all(r.rc == mqtt.MQTT_ERR_SUCCESS for r in resultados):
+        print(f"🔄 [MQTT] Telemetria publicada: pacote {dados.get('contador')}")
+    else:
+        print("⚠️ [MQTT] Pacote não publicado: broker indisponível.")
 
-# Inicializa cliente MQTT compatível com Paho MQTT v2.0+
-cliente_mqtt = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
-try:
-    cliente_mqtt.connect(BROKER, PORTA, 60)
-    cliente_mqtt.loop_start()
-    print("✅ Conectado ao Broker MQTT com sucesso!")
-except Exception as e:
-    print(f"⚠️ Aviso: Não foi possível conectar ao Broker MQTT ({e}). Os dados ainda serão salvos no SQLite.")
 
-try:
-    # Abre a conexão com a porta USB do ESP32 da Estação Terrena
-    serial_esp32 = serial.serial_for_url(PORTA_SERIAL, BAUD_RATE, timeout=1)
-    print(f"✅ Conectado à porta serial física {PORTA_SERIAL} com sucesso! Aguardando pacotes reais do rádio LoRa...")
+def criar_cliente_mqtt():
+    """Conecta em segundo plano e reconecta sozinho se o broker cair ou iniciar depois."""
+    conectado = threading.Event()
 
-    while True:
-        # readline espera até o timeout, então o laço não ocupa a CPU sem necessidade
-        linha = serial_esp32.readline().decode('utf-8', errors='ignore').strip()
+    def ao_conectar(cliente, _dados, _flags, codigo, _propriedades):
+        if codigo.is_failure:
+            print(f"⚠️ [MQTT] Broker recusou a conexão: {codigo}")
+            return
+        cliente.publish(TOPICO_STATUS, mensagem_status("online"), retain=True)
+        print("✅ Conectado ao Broker MQTT com sucesso!")
+        conectado.set()
 
-        # O ESP32 da Estação Terrena deve imprimir o payload em formato JSON puro na serial
-        if linha.startswith("{") and linha.endswith("}"):
-            try:
-                dados = json.loads(linha)
+    cliente = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
+    cliente.on_connect = ao_conectar
+    # Se a ponte cair sem avisar, o próprio broker publica que a estação ficou offline
+    cliente.will_set(TOPICO_STATUS, mensagem_status("offline"), retain=True)
+    cliente.reconnect_delay_set(min_delay=1, max_delay=30)
+    cliente.connect_async(BROKER, PORTA_MQTT, 60)
+    cliente.loop_start()
+    if not conectado.wait(ESPERA_CONEXAO_MQTT):
+        print(f"⚠️ Aviso: Broker MQTT indisponível em {BROKER}:{PORTA_MQTT}. "
+              "Os dados serão salvos no SQLite, e a ponte seguirá tentando conectar.")
+    return cliente
 
-                # 1. Salva os dados reais coletados no Banco de Dados SQLite
-                salvar_no_banco(dados)
 
-                # 2. Publica no Broker MQTT para outros módulos ouvirem
-                payload = json.dumps(dados)
-                resultado = cliente_mqtt.publish(TOPICO_MQTT, payload)
-                if resultado.rc == mqtt.MQTT_ERR_SUCCESS:
-                    print(f"🔄 [MQTT] Telemetria real publicada: {payload}")
-                else:
-                    print("⚠️ [MQTT] Pacote não publicado: broker indisponível.")
+def encerrar_cliente_mqtt(cliente):
+    if cliente.is_connected():
+        aviso = cliente.publish(TOPICO_STATUS, mensagem_status("offline"), retain=True)
+        aviso.wait_for_publish(timeout=1)
+        cliente.disconnect()
+    cliente.loop_stop()
 
-            except json.JSONDecodeError:
-                print(f"⚠️ Aviso: Linha recebida não é um JSON válido: {linha}")
 
-except serial.SerialException as e:
-    print(f"❌ Erro na porta serial {PORTA_SERIAL}: {e}. Verifique se a placa está conectada e se o Monitor Serial do PlatformIO está fechado.")
-except KeyboardInterrupt:
-    print("\n🛑 Ponte Serial encerrada pelo utilizador.")
+def processar_linha(cliente, linha):
+    # A estação imprime uma linha JSON por pacote válido; as demais são para leitura humana
+    if not (linha.startswith("{") and linha.endswith("}")):
+        return
     try:
-        cliente_mqtt.loop_stop()
-        cliente_mqtt.disconnect()
-    except:
-        pass
+        dados = json.loads(linha)
+    except json.JSONDecodeError:
+        print(f"⚠️ Aviso: Linha recebida não é um JSON válido: {linha}")
+        return
+    salvar_no_banco(dados)
+    publicar_telemetria(cliente, dados)
+
+
+def main():
+    preparar_banco(DB_PATH)
+    print("--- Iniciando Ponte Serial -> MQTT & SQLite ---")
+    cliente = criar_cliente_mqtt()
+    try:
+        serial_esp32 = serial.serial_for_url(PORTA_SERIAL, BAUD_RATE, timeout=1)
+        print(f"✅ Conectado à porta serial {PORTA_SERIAL}. Aguardando pacotes...")
+        while True:
+            # readline espera até o timeout, então o laço não ocupa a CPU sem necessidade
+            linha = serial_esp32.readline().decode('utf-8', errors='ignore').strip()
+            processar_linha(cliente, linha)
+    except serial.SerialException as e:
+        print(f"❌ Erro na porta serial {PORTA_SERIAL}: {e}. Verifique se a placa está conectada "
+              "e se o Monitor Serial do PlatformIO está fechado.")
+    except KeyboardInterrupt:
+        print("\n🛑 Ponte Serial encerrada pelo utilizador.")
+    finally:
+        encerrar_cliente_mqtt(cliente)
+
+
+if __name__ == "__main__":
+    main()
