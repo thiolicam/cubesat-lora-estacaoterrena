@@ -10,11 +10,25 @@ Protótipo de estação terrena para recepção de telemetria e envio de comando
 - `TESTMVP.md`: Roteiro de teste de bancada
 - `tests/`: Testes automatizados
 
+## Instalação
+Você precisa de Python 3 e, para gravar as placas, do [PlatformIO](https://platformio.org/install/cli). Na raiz do repositório, no PowerShell:
+
+```bash
+python -m venv venv
+```
+
+```bash
+venv\Scripts\Activate.ps1
+```
+
+```bash
+pip install -r requirements.txt
+```
+
 ## Como rodar sem as placas
 `simular.py` inicia o simulador da estação terrena, a ponte serial e o dashboard. Os dados vão para `estacao_sim.db`, recriado a cada execução, e não para o `estacao.db` real.
 
 ```bash
-pip install -r requirements.txt
 python simular.py
 ```
 
@@ -42,17 +56,31 @@ Para ver as mensagens, assine os tópicos em `127.0.0.1`, o mesmo endereço usad
 Se um container Docker também usar a porta 1883, ele será outro broker, separado: `localhost` pode cair nele, e as mensagens da ponte não aparecerão, sem nenhum erro. Por isso, informe sempre `127.0.0.1`.
 
 ## Como rodar com as placas
-Com a estação terrena conectada e o Monitor Serial fechado, informe a porta e inicie a ponte e o dashboard em terminais separados:
+Veja a porta de cada placa e grave um firmware em cada uma, trocando `COM3` e `COM4` pelas suas:
 
 ```bash
-ESTACAO_SERIAL=COM3 python server/serial_bridge.py
+pio device list
+```
+
+```bash
+pio run -d firmware/cubesat-simulator -t upload --upload-port COM3
+```
+
+```bash
+pio run -d firmware/ground-station -t upload --upload-port COM4
+```
+
+Com o Monitor Serial fechado, inicie a ponte e o dashboard em terminais separados, e abra http://localhost:5000:
+
+```bash
+$env:ESTACAO_SERIAL = "COM4"; python server/serial_bridge.py
 ```
 
 ```bash
 python dashboard/dashboard.py
 ```
 
-No PowerShell, defina a porta antes com `$env:ESTACAO_SERIAL = "COM3"`.
+Os testes de bancada estão em [TESTMVP.md](TESTMVP.md), a demonstração em [docs/demo-mvp.md](docs/demo-mvp.md) e o relatório de um teste sai de `server/relatorio_testes.py`.
 
 ## Como operar mais de um receptor
 Cada receptor é uma placa com o próprio `RECEPTOR_ID`, definido na gravação. No PowerShell:

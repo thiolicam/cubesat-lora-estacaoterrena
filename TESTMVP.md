@@ -102,9 +102,13 @@ Com o T4 rodando:
 
 ## T6. Aceitação do MVP (S5.3)
 
-Deixe o T4 rodando por pelo menos 1 hora.
+Antes de começar, **desligue a suspensão do notebook** nas configurações de energia do Windows. Se ele dormir, o teste para. Anote o horário e deixe o T4 rodando por pelo menos 1 hora. No fim, gere o relatório, trocando o horário pelo de início:
 
-**Passa se:** o sistema continua salvando e exibindo dados até o fim. Registre a taxa de recepção, o RSSI e o SNR médios.
+```bash
+python server/relatorio_testes.py --desde "2026-11-05 14:00" --minimo-horas 1 --saida docs/ensaio-mvp.md
+```
+
+**Passa se:** o relatório diz "Aprovado", ou seja, o sistema operou por 1 hora sem nenhum intervalo acima de 60 s sem pacotes. O dashboard também precisa continuar atualizando até o fim.
 
 ## T7. Ciclo comando e ACK (S6.6)
 
