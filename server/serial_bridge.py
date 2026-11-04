@@ -55,15 +55,16 @@ def salvar_no_banco(dados):
             INSERT INTO pacotes (cubesat_id, contador, tensao_bateria, corrente, temperatura, modo, flags, rssi, snr, validos, invalidos)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ''', (
-            str(dados.get("cubesat_id", "LION-1")),
-            int(dados.get("contador", 0)),
-            float(dados.get("tensao_bateria", 0.0)),
-            float(dados.get("corrente", 0.0)),
-            float(dados.get("temperatura", 0.0)),
-            str(dados.get("modo", "IDLE")),
-            int(dados.get("flags", 0)),
-            float(dados.get("rssi", 0.0)),
-            float(dados.get("snr", 0.0)),
+            # Campo ausente fica vazio no banco: nunca inventar um valor de telemetria
+            dados.get("cubesat_id"),
+            dados.get("contador"),
+            dados.get("tensao_bateria"),
+            dados.get("corrente"),
+            dados.get("temperatura"),
+            dados.get("modo"),
+            dados.get("flags"),
+            dados.get("rssi"),
+            dados.get("snr"),
             dados.get("validos"),
             dados.get("invalidos")
         ))
