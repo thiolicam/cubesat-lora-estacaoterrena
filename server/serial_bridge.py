@@ -15,7 +15,9 @@ BAUD_RATE = 115200
 ESPERA_LEITURA_S = 0.2  # intervalo máximo para verificar se há comando na fila
 
 # 2. Broker MQTT local e tópicos definidos em docs/protocolo.md
-BROKER = "localhost"
+# Endereço IPv4 explícito: "localhost" pode cair em outro broker na mesma porta (como um container
+# Docker em ::1), e as mensagens somem sem nenhum erro para quem assina no outro.
+BROKER = os.environ.get("ESTACAO_MQTT_HOST", "127.0.0.1")
 PORTA_MQTT = int(os.environ.get("ESTACAO_MQTT_PORTA", "1883"))
 TOPICO_BRUTO = "cubesat/telemetry/raw"
 TOPICO_DECODIFICADO = "cubesat/telemetry/parsed"
