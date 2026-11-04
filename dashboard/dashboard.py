@@ -5,7 +5,7 @@ from flask import Flask, jsonify
 app = Flask(__name__)
 
 # Caminho absoluto para o banco estacao.db na raiz do projeto
-DB_PATH = os.path.join(os.path.dirname(__file__), '..', 'estacao.db')
+DB_PATH = os.environ.get("ESTACAO_DB", os.path.join(os.path.dirname(__file__), '..', 'estacao.db'))
 
 def inicializar_banco_se_necessario():
     """Garante que a tabela exista ao iniciar o servidor web."""
@@ -14,14 +14,14 @@ def inicializar_banco_se_necessario():
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS pacotes (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            cubesat_id TEXT,
+            cubesat_id INTEGER,
             contador INTEGER,
             tensao_bateria REAL,
             corrente REAL,
             temperatura REAL,
-            modo TEXT,
+            modo INTEGER,
             flags INTEGER,
-            rssi REAL,
+            rssi INTEGER,
             snr REAL,
             data_hora DATETIME DEFAULT CURRENT_TIMESTAMP
         )

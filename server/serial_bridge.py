@@ -5,7 +5,8 @@ import os
 import paho.mqtt.client as mqtt
 
 # 1. Configurações da Porta Serial (Ajuste para a porta real do seu ESP32 da Estação Terrena)
-PORTA_SERIAL = "COM3"  # Ex: "COM3" no Windows ou "/dev/ttyUSB0" no Linux
+# Ex: "COM3" no Windows, "/dev/ttyUSB0" no Linux ou "socket://127.0.0.1:7000" no simulador
+PORTA_SERIAL = os.environ.get("ESTACAO_SERIAL", "COM3")
 BAUD_RATE = 115200
 
 # 2. Configurações do MQTT Broker local
@@ -14,7 +15,7 @@ PORTA = 1883
 TOPICO_MQTT = "cubesat/telemetry/parsed"
 
 # 3. Caminho do banco de dados SQLite unificado (estacao.db na raiz do projeto)
-DB_PATH = os.path.join(os.path.dirname(__file__), '..', 'estacao.db')
+DB_PATH = os.environ.get("ESTACAO_DB", os.path.join(os.path.dirname(__file__), '..', 'estacao.db'))
 
 def inicializar_banco():
     """Garante que a tabela 'pacotes' existe no SQLite com todas as colunas reais."""
@@ -23,14 +24,14 @@ def inicializar_banco():
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS pacotes (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            cubesat_id TEXT,
+            cubesat_id INTEGER,
             contador INTEGER,
             tensao_bateria REAL,
             corrente REAL,
             temperatura REAL,
-            modo TEXT,
+            modo INTEGER,
             flags INTEGER,
-            rssi REAL,
+            rssi INTEGER,
             snr REAL,
             validos INTEGER,
             invalidos INTEGER,
@@ -68,7 +69,7 @@ def salvar_no_banco(dados):
         ))
         conexao.commit()
         conexao.close()
-        print("💾 [SQLite] Pacote real gravado com sucesso no estacao.db!")
+        print(f"💾 [SQLite] Pacote gravado com sucesso em {os.path.basename(DB_PATH)}!")
     except Exception as e:
         print(f"❌ [Erro SQLite] Falha ao inserir dados reais: {e}")
 
@@ -88,29 +89,32 @@ except Exception as e:
 
 try:
     # Abre a conexão com a porta USB do ESP32 da Estação Terrena
-    serial_esp32 = serial.Serial(PORTA_SERIAL, BAUD_RATE, timeout=1)
+    serial_esp32 = serial.serial_for_url(PORTA_SERIAL, BAUD_RATE, timeout=1)
     print(f"✅ Conectado à porta serial física {PORTA_SERIAL} com sucesso! Aguardando pacotes reais do rádio LoRa...")
 
     while True:
-        if serial_esp32.in_waiting > 0:
-            linha = serial_esp32.readline().decode('utf-8', errors='ignore').strip()
-            
-            # O ESP32 da Estação Terrena deve imprimir o payload em formato JSON puro na serial
-            if linha.startswith("{") and linha.endswith("}"):
-                try:
-                    dados = json.loads(linha)
-                    
-                    # 1. Salva os dados reais coletados no Banco de Dados SQLite
-                    salvar_no_banco(dados)
+        # readline espera até o timeout, então o laço não ocupa a CPU sem necessidade
+        linha = serial_esp32.readline().decode('utf-8', errors='ignore').strip()
 
-                    # 2. Publica no Broker MQTT para outros módulos ouvirem
-                    payload = json.dumps(dados)
-                    cliente_mqtt.publish(TOPICO_MQTT, payload)
+        # O ESP32 da Estação Terrena deve imprimir o payload em formato JSON puro na serial
+        if linha.startswith("{") and linha.endswith("}"):
+            try:
+                dados = json.loads(linha)
+
+                # 1. Salva os dados reais coletados no Banco de Dados SQLite
+                salvar_no_banco(dados)
+
+                # 2. Publica no Broker MQTT para outros módulos ouvirem
+                payload = json.dumps(dados)
+                resultado = cliente_mqtt.publish(TOPICO_MQTT, payload)
+                if resultado.rc == mqtt.MQTT_ERR_SUCCESS:
                     print(f"🔄 [MQTT] Telemetria real publicada: {payload}")
-                    
-                except json.JSONDecodeError:
-                    print(f"⚠️ Aviso: Linha recebida não é um JSON válido: {linha}")
-                    
+                else:
+                    print("⚠️ [MQTT] Pacote não publicado: broker indisponível.")
+
+            except json.JSONDecodeError:
+                print(f"⚠️ Aviso: Linha recebida não é um JSON válido: {linha}")
+
 except serial.SerialException as e:
     print(f"❌ Erro na porta serial {PORTA_SERIAL}: {e}. Verifique se a placa está conectada e se o Monitor Serial do PlatformIO está fechado.")
 except KeyboardInterrupt:
