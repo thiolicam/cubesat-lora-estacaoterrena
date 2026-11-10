@@ -2,6 +2,7 @@ import json
 import os
 import sqlite3
 import threading
+import time
 
 import paho.mqtt.client as mqtt
 import serial
@@ -13,6 +14,7 @@ import banco
 PORTA_SERIAL = os.environ.get("ESTACAO_SERIAL", "COM3")
 BAUD_RATE = 115200
 ESPERA_LEITURA_S = 0.2  # intervalo máximo para verificar se há comando na fila
+ESPERA_RECONEXAO_S = 2  # se a porta cair, tenta reabrir nesse intervalo
 
 # 2. Broker MQTT local e tópicos definidos em docs/protocolo.md
 # Endereço IPv4 explícito: "localhost" pode cair em outro broker na mesma porta (como um container
@@ -183,12 +185,10 @@ def atender_comandos(cliente, porta):
     publicar(cliente, [(TOPICO_COMANDO, conteudo)], "Envio de comando")
 
 
-def main():
-    banco.preparar_banco(DB_PATH)
-    print("--- Iniciando Ponte Serial -> MQTT & SQLite ---")
-    cliente = criar_cliente_mqtt()
+def atender_porta(cliente):
+    """Lê a estação até a porta falhar; a falha sobe como SerialException."""
+    serial_esp32 = serial.serial_for_url(PORTA_SERIAL, BAUD_RATE, timeout=ESPERA_LEITURA_S)
     try:
-        serial_esp32 = serial.serial_for_url(PORTA_SERIAL, BAUD_RATE, timeout=ESPERA_LEITURA_S)
         print(f"✅ Conectado à porta serial {PORTA_SERIAL}. Aguardando pacotes...")
         leitor = LeitorDeLinhas(serial_esp32)
         while True:
@@ -197,9 +197,31 @@ def main():
                 processar_linha(cliente, linha)
             if ENVIA_COMANDOS:
                 atender_comandos(cliente, serial_esp32)
-    except serial.SerialException as e:
-        print(f"❌ Erro na porta serial {PORTA_SERIAL}: {e}. Verifique se a placa está conectada "
-              "e se o Monitor Serial do PlatformIO está fechado.")
+    finally:
+        serial_esp32.close()
+
+
+def main():
+    banco.preparar_banco(DB_PATH)
+    print("--- Iniciando Ponte Serial -> MQTT & SQLite ---")
+    cliente = criar_cliente_mqtt()
+    ultimo_erro = None
+    try:
+        while True:
+            try:
+                atender_porta(cliente)
+            except serial.SerialException as e:
+                # No simulador, a conexão encerrada é o fim da simulação
+                if PORTA_SERIAL.startswith("socket://"):
+                    print(f"❌ Erro na porta serial {PORTA_SERIAL}: {e}.")
+                    break
+                # Um cabo que mexe faz a porta sumir por um instante: a ponte não pode parar por isso
+                if str(e) != ultimo_erro:
+                    print(f"❌ Erro na porta serial {PORTA_SERIAL}: {e}. Verifique se a placa está conectada "
+                          f"e se o Monitor Serial do PlatformIO está fechado. Tentando de novo a cada "
+                          f"{ESPERA_RECONEXAO_S} s...")
+                    ultimo_erro = str(e)
+                time.sleep(ESPERA_RECONEXAO_S)
     except KeyboardInterrupt:
         print("\n🛑 Ponte Serial encerrada pelo utilizador.")
     finally:
