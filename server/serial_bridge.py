@@ -37,10 +37,10 @@ ESPERA_ACK_S = int(os.environ.get("ESTACAO_ESPERA_ACK", "10"))
 VALIDADE_PENDENTE_S = 30
 
 TIPO_ACK = 3
-CAMPOS_ENLACE = ("receptor_id", "frequencia_mhz", "rssi", "snr", "validos", "invalidos")
+CAMPOS_ENLACE = ("receptor_id", "frequencia_mhz", "rssi", "snr", "validos", "invalidos", "estranhos")
 CAMPOS_BANCO = (
     "cubesat_id", "tipo", "contador", "tensao_bateria", "corrente", "temperatura", "modo",
-    "flags", "rssi", "snr", "validos", "invalidos", "frequencia_mhz", "receptor_id", "raw",
+    "flags", "rssi", "snr", "validos", "invalidos", "estranhos", "frequencia_mhz", "receptor_id", "raw",
 )
 
 # Com vários receptores há uma ponte por estação, mas só uma pode transmitir os comandos

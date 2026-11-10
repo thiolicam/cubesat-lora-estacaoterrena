@@ -48,6 +48,23 @@ def medir_periodo(pacotes):
     return duracao, silencio
 
 
+def contar_estranhos(pacotes):
+    """Pacotes de outros aparelhos no período; o contador da estação zera se ela reiniciar."""
+    total, anterior = 0, None
+    for p in pacotes:
+        valor = p.get("estranhos")
+        if valor is None:
+            continue
+        if anterior is None:
+            total += valor if p.get("validos") == 1 else 0
+        elif valor >= anterior:
+            total += valor - anterior
+        else:
+            total += valor
+        anterior = valor
+    return total if anterior is not None else None
+
+
 def texto_duracao(segundos):
     horas, resto = divmod(int(segundos), 3600)
     minutos, segundos = divmod(resto, 60)
@@ -93,6 +110,8 @@ def gerar_relatorio(pacotes, comandos, minimo_horas=None, origem=""):
         f"- **Corrompidos:** {geral['corrompidos']}",
         f"- **Não chegaram:** {geral['nao_chegaram']}",
         f"- **Interrupções fora da conta:** {geral['interrupcoes']}",
+        f"- **Pacotes de outros aparelhos ignorados:** "
+        f"{'não medido (firmware antigo)' if contar_estranhos(pacotes) is None else contar_estranhos(pacotes)}",
         f"- **Sinal médio:** RSSI {decimal(geral['rssi_medio'], 0)} dBm, SNR {decimal(geral['snr_medio'])} dB",
     ]
     if geral["combinado"]:

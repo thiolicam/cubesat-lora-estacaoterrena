@@ -11,7 +11,7 @@ RAIZ = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 sys.path.insert(0, os.path.join(RAIZ, "server"))
 
 import banco
-from relatorio_testes import avaliar, gerar_relatorio, ler_dados, medir_periodo
+from relatorio_testes import avaliar, contar_estranhos, gerar_relatorio, ler_dados, medir_periodo
 from simulador_estacao import Simulacao
 
 
@@ -84,6 +84,23 @@ class TestRelatorio(unittest.TestCase):
                             "--minimo-horas", "1", "--saida", saida], check=True, capture_output=True)
             with open(saida, encoding="utf-8") as f:
                 self.assertIn("Reprovado", f.read())
+
+
+class TestEstranhos(unittest.TestCase):
+    def test_conta_so_o_que_aconteceu_no_periodo(self):
+        pacotes = [dict(pacote(0, "2026-11-04 10:00:00"), validos=50, estranhos=10),
+                   dict(pacote(1, "2026-11-04 10:00:02"), validos=51, estranhos=13)]
+        self.assertEqual(contar_estranhos(pacotes), 3)
+
+    def test_estacao_reiniciada_nao_gera_valor_negativo(self):
+        pacotes = [dict(pacote(0, "2026-11-04 10:00:00"), validos=50, estranhos=10),
+                   dict(pacote(1, "2026-11-04 10:00:02"), validos=51, estranhos=12),
+                   dict(pacote(2, "2026-11-04 10:00:04"), validos=1, estranhos=4)]
+        self.assertEqual(contar_estranhos(pacotes), 6)
+
+    def test_firmware_antigo_nao_mede(self):
+        self.assertIsNone(contar_estranhos([pacote(0, "2026-11-04 10:00:00")]))
+        self.assertIn("não medido", gerar_relatorio([pacote(0, "2026-11-04 10:00:00")], []))
 
 
 class TestSimuladorDepoisDeDormir(unittest.TestCase):

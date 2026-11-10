@@ -140,6 +140,7 @@ class Simulacao:
             f'"tensao_bateria": {t["tensao_bateria"]:.2f}, "corrente": {t["corrente"]:.2f}, '
             f'"temperatura": {t["temperatura"]:.2f}, "modo": {t["modo"]}, "flags": {t["flags"]}, '
             f'"rssi": {rssi}, "snr": {snr:.1f}, "validos": {receptor.validos}, "invalidos": {receptor.invalidos}, '
+            f'"estranhos": 0, '
             f'"frequencia_mhz": {receptor.frequencia_mhz:.1f}, "receptor_id": {receptor.identificador}, '
             f'"raw": "{recebido.hex().upper()}"}}',
         ]))

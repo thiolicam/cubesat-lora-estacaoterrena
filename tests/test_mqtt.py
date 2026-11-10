@@ -135,7 +135,7 @@ class TestMqtt(unittest.TestCase):
 
     def test_estatisticas_de_enlace(self):
         enlace = json.loads(self.conteudos("groundstation/link/stats")[-1])
-        self.assertEqual(set(enlace), {"receptor_id", "frequencia_mhz", "rssi", "snr", "validos", "invalidos"})
+        self.assertEqual(set(enlace), {"receptor_id", "frequencia_mhz", "rssi", "snr", "validos", "invalidos", "estranhos"})
         self.assertEqual(enlace["validos"], self.validos)
 
     def test_status_online_e_offline_ficam_retidos(self):

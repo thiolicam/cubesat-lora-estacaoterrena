@@ -80,7 +80,9 @@ struct __attribute__((packed)) AckPacket {
 
 // Contadores para métricas de confiabilidade de enlace
 unsigned long pacotesValidos = 0;
-unsigned long pacotesInvalidos = 0;
+unsigned long pacotesInvalidos = 0;  // pacotes do nosso formato com CRC errado
+// Pacotes de tamanho que nao existe no protocolo: vem de outros aparelhos LoRa na mesma frequencia
+unsigned long pacotesEstranhos = 0;
 
 // Algoritmo de Cálculo do CRC-16 (CCITT)
 uint16_t calcular_crc16(const uint8_t *data, size_t len) {
@@ -263,8 +265,8 @@ void loop()
                 // Saída estruturada estritamente em JSON para a ponte serial (`serial_bridge.py`)
                 char bruto[2 * sizeof(TelemetryPacket) + 1];
                 paraHex((const uint8_t*)&pacote, sizeof(pacote), bruto);
-                Serial.printf("{\"cubesat_id\": %d, \"tipo\": %d, \"contador\": %d, \"tensao_bateria\": %.2f, \"corrente\": %.2f, \"temperatura\": %.2f, \"modo\": %d, \"flags\": %d, \"rssi\": %d, \"snr\": %.1f, \"validos\": %lu, \"invalidos\": %lu, \"frequencia_mhz\": %.1f, \"receptor_id\": %d, \"raw\": \"%s\"}\n",
-                    pacote.cubesat_id, pacote.tipo, contador, tensao, corrente, temperatura, modo, flags, rssi, snr, pacotesValidos, pacotesInvalidos, FREQUENCIA / 1E6, RECEPTOR_ID, bruto);
+                Serial.printf("{\"cubesat_id\": %d, \"tipo\": %d, \"contador\": %d, \"tensao_bateria\": %.2f, \"corrente\": %.2f, \"temperatura\": %.2f, \"modo\": %d, \"flags\": %d, \"rssi\": %d, \"snr\": %.1f, \"validos\": %lu, \"invalidos\": %lu, \"estranhos\": %lu, \"frequencia_mhz\": %.1f, \"receptor_id\": %d, \"raw\": \"%s\"}\n",
+                    pacote.cubesat_id, pacote.tipo, contador, tensao, corrente, temperatura, modo, flags, rssi, snr, pacotesValidos, pacotesInvalidos, pacotesEstranhos, FREQUENCIA / 1E6, RECEPTOR_ID, bruto);
 
             } else {
                 pacotesInvalidos++;
@@ -276,8 +278,8 @@ void loop()
         } 
         else 
         {
-            pacotesInvalidos++;
-            Serial.printf("ALERTA: Pacote com tamanho incorreto descartado (%d bytes).\n", tamanhoPacote);
+            pacotesEstranhos++;
+            Serial.printf("Pacote de outro aparelho ignorado (%d bytes; o protocolo usa 16 ou 10).\n", tamanhoPacote);
             // Esvazia o buffer do rádio
             while (LoRa.available()) {
                 LoRa.read();

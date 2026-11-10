@@ -9,6 +9,7 @@ COLUNAS_ADICIONADAS = {
     "frequencia_mhz": "REAL",
     "receptor_id": "INTEGER",
     "raw": "TEXT",
+    "estranhos": "INTEGER",
 }
 
 # Ciclo de um comando: pendente -> enviado -> confirmado, rejeitado ou sem_resposta.

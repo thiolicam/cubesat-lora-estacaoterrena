@@ -138,7 +138,7 @@ Cada pacote válido gera uma linha JSON, lida pela ponte serial. As demais linha
 {"cubesat_id": 1, "tipo": 1, "contador": 42, "tensao_bateria": 3.72, "corrente": -1.25, "temperatura": -5.25, "modo": 1, "flags": 1, "rssi": -87, "snr": 9.2, "validos": 8, "invalidos": 2, "frequencia_mhz": 915.0, "receptor_id": 1, "raw": "AA010101002A0174FDF3FF830101AEFF"}
 ```
 
-- `validos` e `invalidos` são acumulados desde que a estação ligou.
+- `validos`, `invalidos` e `estranhos` são acumulados desde que a estação ligou. `invalidos` conta pacotes do nosso formato com CRC errado; `estranhos` conta pacotes de tamanho que não existe no protocolo, vindos de outros aparelhos LoRa na mesma frequência.
 - `receptor_id` identifica a estação terrena e é definido em `RECEPTOR_ID`, no firmware dela.
 - `raw` traz os 16 bytes do pacote em hexadecimal.
 
@@ -160,7 +160,7 @@ CMD 7 1 2 5
 |---|---|---|---|
 | `cubesat/telemetry/raw` | Pacote bruto | Os 16 bytes em hexadecimal | Implementado |
 | `cubesat/telemetry/parsed` | Telemetria decodificada | A linha JSON da serial, sem `raw` | Implementado |
-| `groundstation/link/stats` | RSSI, SNR e estatísticas | JSON com `receptor_id`, `frequencia_mhz`, `rssi`, `snr`, `validos` e `invalidos` | Implementado |
+| `groundstation/link/stats` | RSSI, SNR e estatísticas | JSON com `receptor_id`, `frequencia_mhz`, `rssi`, `snr`, `validos`, `invalidos` e `estranhos` | Implementado |
 | `groundstation/status` | Estado da estação | JSON com `estado` (`online` ou `offline`) e `porta_serial`, retido no broker | Implementado |
 | `cubesat/command/send` | Comando enviado | JSON com `comando_id`, `cubesat_id`, `codigo` e `parametro` | Implementado |
 | `cubesat/command/ack` | Confirmação de comando | A linha JSON do ACK | Implementado |
