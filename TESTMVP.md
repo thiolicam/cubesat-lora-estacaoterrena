@@ -131,8 +131,8 @@ Com o T4 rodando, use os botões de "Comandos para o CubeSat" no dashboard:
 |---|---|---|---|
 | T1 Pinagem | 10/11/2026 | Aprovado com um ESP32 (CP2102) na LION: SCK 18, MISO 19, MOSI 23, SS 5, RST 16, DIO0 4. Outro ESP32 (CH9102) não iniciou na LION: o GPIO12 ficou alto e a flash não respondeu | Saída do `teste-pinos` |
 | T2 Enlace | 10/11/2026 | Aprovado em 30 s, com as placas lado a lado: 13 de 14 pacotes recebidos (faltou o 11), RSSI -22 dBm, SNR 9,2 a 10 dB, parâmetros iguais nas duas placas. Valores negativos ainda não observados nesse intervalo | Leitura simultânea das duas portas |
-| T3 30 minutos | | | |
-| T4 Ponta a ponta | | | |
+| T3 30 minutos | 10/11/2026 | Aprovado dentro do ensaio de 1 hora: nenhuma trava, contadores coerentes | `docs/ensaio-mvp.md` |
+| T4 Ponta a ponta | 10/11/2026 | Aprovado: em 7 min, 204 pacotes no dashboard, no `estacao.db` e no MQTT (assinante independente), com temperatura de -20,38 a 30,41 °C, corrente de -0,42 a 0,91 A e os dois modos. Faltaram 5 de 209 contadores; a estação descartou 24 pacotes, a maioria de outro aparelho em 915 MHz | Dashboard, banco e `mosquitto_sub` |
 | T5 Falhas | | | |
-| T6 Aceitação | | | |
+| T6 Aceitação | 10/11/2026 | Aprovado: 1 h 2 min contínuos, maior intervalo sem pacotes de 4 s, 99,3% de recepção (1.809 de 1.822), RSSI médio -29 dBm, SNR 9,6 dB, com as placas lado a lado | `docs/ensaio-mvp.md` |
 | T7 Comandos | | | |
