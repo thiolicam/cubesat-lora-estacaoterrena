@@ -4,7 +4,7 @@
 #include <lwip/def.h> // Para conversão Big-Endian (ntohs)
 
 // =====================
-// Pinagem da LION
+// Pinagem da LION, confirmada na placa em 10/11/2026 com firmware/teste-pinos
 // =====================
 #define LORA_SS    5 
 #define LORA_RST   16

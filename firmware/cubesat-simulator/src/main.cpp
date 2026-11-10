@@ -2,16 +2,15 @@
 #include <SPI.h>
 #include <LoRa.h>
 
-#define LORA_SS    18
-#define LORA_RST   14
-#define LORA_DIO0  26
+// Pinagem da LION, confirmada na placa em 10/11/2026 com firmware/teste-pinos.
+// E a mesma da estacao terrena: as duas usam a mesma placa.
+#define LORA_SS    5
+#define LORA_RST   16
+#define LORA_DIO0  4
 
-// SPI da placa LION. A pinagem ainda precisa ser confirmada na placa com o firmware
-// firmware/teste-pinos, porque o historico do repositorio traz versoes diferentes.
-// Sem SPI.begin a biblioteca usa o SCK padrao do ESP32 (18), que colide com LORA_SS.
-#define LORA_SCK   5
+#define LORA_SCK   18
 #define LORA_MISO  19
-#define LORA_MOSI  27
+#define LORA_MOSI  23
 
 #ifndef FREQUENCIA
 #define FREQUENCIA        915E6
