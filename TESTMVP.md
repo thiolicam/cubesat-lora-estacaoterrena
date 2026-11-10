@@ -129,8 +129,8 @@ Com o T4 rodando, use os botões de "Comandos para o CubeSat" no dashboard:
 
 | Teste | Data | Resultado | Evidência |
 |---|---|---|---|
-| T1 Pinagem | | | |
-| T2 Enlace | | | |
+| T1 Pinagem | 10/11/2026 | Aprovado com um ESP32 (CP2102) na LION: SCK 18, MISO 19, MOSI 23, SS 5, RST 16, DIO0 4. Outro ESP32 (CH9102) não iniciou na LION: o GPIO12 ficou alto e a flash não respondeu | Saída do `teste-pinos` |
+| T2 Enlace | 10/11/2026 | Aprovado em 30 s, com as placas lado a lado: 13 de 14 pacotes recebidos (faltou o 11), RSSI -22 dBm, SNR 9,2 a 10 dB, parâmetros iguais nas duas placas. Valores negativos ainda não observados nesse intervalo | Leitura simultânea das duas portas |
 | T3 30 minutos | | | |
 | T4 Ponta a ponta | | | |
 | T5 Falhas | | | |
