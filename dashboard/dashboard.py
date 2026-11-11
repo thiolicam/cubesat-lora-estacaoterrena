@@ -1,4 +1,3 @@
-import sqlite3
 import os
 import sys
 from flask import Flask, jsonify, render_template, request
@@ -17,39 +16,14 @@ app = Flask(__name__)
 # Caminho absoluto para o banco estacao.db na raiz do projeto
 DB_PATH = os.environ.get("ESTACAO_DB", os.path.join(os.path.dirname(__file__), '..', 'estacao.db'))
 
-COLUNAS = (
-    "cubesat_id, tipo, contador, tensao_bateria, corrente, temperatura, modo, flags, rssi, snr, "
-    "validos, invalidos, frequencia_mhz, receptor_id, raw, data_hora"
-)
 JANELA_PADRAO = 200
 JANELA_MAXIMA = 5000
 
 
-def conectar_db():
-    preparar_banco(DB_PATH)
-    conexao = sqlite3.connect(DB_PATH)
-    conexao.row_factory = sqlite3.Row
-    return conexao
-
-
 def buscar_pacotes(limite=None, receptor=None, frequencia=None):
-    """Retorna os pacotes mais recentes em ordem cronológica; sem limite, retorna todos."""
-    condicoes, parametros = [], []
-    if receptor is not None:
-        condicoes.append("receptor_id = ?")
-        parametros.append(receptor)
-    if frequencia is not None:
-        condicoes.append("frequencia_mhz = ?")
-        parametros.append(frequencia)
-    onde = f"WHERE {' AND '.join(condicoes)}" if condicoes else ""
-    consulta = f"SELECT {COLUNAS} FROM pacotes {onde} ORDER BY id DESC"
-    if limite is not None:
-        consulta += " LIMIT ?"
-        parametros.append(limite)
-    conexao = conectar_db()
-    linhas = conexao.execute(consulta, parametros).fetchall()
-    conexao.close()
-    return [dict(linha) for linha in reversed(linhas)]
+    """Os pacotes mais recentes, em ordem cronológica; sem limite, todos."""
+    preparar_banco(DB_PATH)
+    return banco.buscar_pacotes(DB_PATH, limite, receptor, frequencia)
 
 
 def filtros_da_requisicao():
@@ -61,13 +35,8 @@ def filtros_da_requisicao():
 
 
 def buscar_opcoes_de_filtro():
-    conexao = conectar_db()
-    receptores = conexao.execute(
-        "SELECT DISTINCT receptor_id FROM pacotes WHERE receptor_id IS NOT NULL ORDER BY receptor_id").fetchall()
-    frequencias = conexao.execute(
-        "SELECT DISTINCT frequencia_mhz FROM pacotes WHERE frequencia_mhz IS NOT NULL ORDER BY frequencia_mhz").fetchall()
-    conexao.close()
-    return {"receptores": [l[0] for l in receptores], "frequencias": [l[0] for l in frequencias]}
+    preparar_banco(DB_PATH)
+    return banco.opcoes_de_filtro(DB_PATH)
 
 
 # ==========================================
@@ -89,19 +58,13 @@ def api_historico_recente():
 
 @app.route("/api/estacao/status", methods=["GET"])
 def api_status_estacao():
-    conexao = conectar_db()
-    cursor = conexao.cursor()
-    cursor.execute("SELECT COUNT(*) as total FROM pacotes")
-    total_result = cursor.fetchone()
-    total_pacotes = total_result["total"]
-
-    cursor.execute("SELECT data_hora, rssi, snr FROM pacotes ORDER BY id DESC LIMIT 1")
-    ultimo = cursor.fetchone()
-    conexao.close()
+    preparar_banco(DB_PATH)
+    resumo = banco.resumo_pacotes(DB_PATH)
+    ultimo = resumo["ultimo"]
 
     status = {
         "status_servidor": "Online",
-        "total_pacotes_armazenados": total_pacotes,
+        "total_pacotes_armazenados": resumo["total"],
         "ultimo_rssi": ultimo["rssi"] if ultimo else None,
         "ultimo_snr": ultimo["snr"] if ultimo else None,
         "ultima_atualizacao": ultimo["data_hora"] if ultimo else None

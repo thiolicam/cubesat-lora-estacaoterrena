@@ -1,5 +1,19 @@
-"""Esquema do banco, em um só lugar: usado pela ponte serial e pelo dashboard."""
+"""Único módulo que conhece o banco de dados (hoje, SQLite).
+
+A ponte serial, o dashboard e o relatório só chamam as funções daqui. Para trocar de
+banco (por exemplo, MongoDB), basta reescrever este arquivo mantendo as mesmas funções
+e o formato dos dados que elas devolvem: dicionários com os campos de PACOTE e da
+tabela de comandos, e data_hora como texto "AAAA-MM-DD HH:MM:SS" em UTC.
+"""
 import sqlite3
+
+# Campos que a ponte grava a cada pacote recebido
+CAMPOS_GRAVADOS = (
+    "cubesat_id", "tipo", "contador", "tensao_bateria", "corrente", "temperatura", "modo",
+    "flags", "rssi", "snr", "validos", "invalidos", "estranhos", "frequencia_mhz", "receptor_id", "raw",
+)
+# Campos que as consultas devolvem: os gravados e o momento da gravação
+CAMPOS_LIDOS = CAMPOS_GRAVADOS + ("data_hora",)
 
 # Nome e tipo de cada coluna que veio depois da primeira versão da tabela
 COLUNAS_ADICIONADAS = {
@@ -61,10 +75,82 @@ def preparar_banco(caminho):
     conexao.close()
 
 
-def _conectar(caminho):
-    conexao = sqlite3.connect(caminho)
+def _conectar(caminho, somente_leitura=False):
+    if somente_leitura:
+        uri = "file:" + caminho.replace("\\", "/") + "?mode=ro"
+        conexao = sqlite3.connect(uri, uri=True)
+    else:
+        conexao = sqlite3.connect(caminho)
     conexao.row_factory = sqlite3.Row
     return conexao
+
+
+# ---------- Pacotes ----------
+
+def gravar_pacote(caminho, dados):
+    """Grava um pacote recebido. Campo ausente fica vazio: nunca inventar um valor de telemetria."""
+    marcadores = ", ".join("?" for _ in CAMPOS_GRAVADOS)
+    _executar(
+        caminho,
+        f"INSERT INTO pacotes ({', '.join(CAMPOS_GRAVADOS)}) VALUES ({marcadores})",
+        [dados.get(campo) for campo in CAMPOS_GRAVADOS],
+    )
+
+
+def buscar_pacotes(caminho, limite=None, receptor=None, frequencia=None):
+    """Os pacotes mais recentes, em ordem cronológica; sem limite, todos. Filtro None significa todos."""
+    condicoes, parametros = [], []
+    if receptor is not None:
+        condicoes.append("receptor_id = ?")
+        parametros.append(receptor)
+    if frequencia is not None:
+        condicoes.append("frequencia_mhz = ?")
+        parametros.append(frequencia)
+    onde = f"WHERE {' AND '.join(condicoes)}" if condicoes else ""
+    consulta = f"SELECT {', '.join(CAMPOS_LIDOS)} FROM pacotes {onde} ORDER BY id DESC"
+    if limite is not None:
+        consulta += " LIMIT ?"
+        parametros.append(limite)
+    conexao = _conectar(caminho)
+    linhas = conexao.execute(consulta, parametros).fetchall()
+    conexao.close()
+    return [dict(linha) for linha in reversed(linhas)]
+
+
+def opcoes_de_filtro(caminho):
+    """Receptores e frequências que já aparecem nos pacotes gravados."""
+    conexao = _conectar(caminho)
+    receptores = conexao.execute(
+        "SELECT DISTINCT receptor_id FROM pacotes WHERE receptor_id IS NOT NULL ORDER BY receptor_id").fetchall()
+    frequencias = conexao.execute(
+        "SELECT DISTINCT frequencia_mhz FROM pacotes WHERE frequencia_mhz IS NOT NULL ORDER BY frequencia_mhz").fetchall()
+    conexao.close()
+    return {"receptores": [l[0] for l in receptores], "frequencias": [l[0] for l in frequencias]}
+
+
+def resumo_pacotes(caminho):
+    """Quantos pacotes há e o mais recente (data_hora, rssi e snr), ou None se não houver."""
+    conexao = _conectar(caminho)
+    total = conexao.execute("SELECT COUNT(*) FROM pacotes").fetchone()[0]
+    ultimo = conexao.execute("SELECT data_hora, rssi, snr FROM pacotes ORDER BY id DESC LIMIT 1").fetchone()
+    conexao.close()
+    return {"total": total, "ultimo": dict(ultimo) if ultimo else None}
+
+
+def ler_periodo(caminho, desde=None):
+    """Pacotes e contagem de comandos por situação desde um momento (UTC), sem alterar o banco."""
+    conexao = _conectar(caminho, somente_leitura=True)
+    filtro, parametros = ("WHERE {campo} >= ?", (desde,)) if desde else ("", ())
+    pacotes = [dict(l) for l in conexao.execute(
+        f"SELECT * FROM pacotes {filtro.format(campo='data_hora')} ORDER BY id", parametros)]
+    comandos = conexao.execute(
+        f"SELECT estado, COUNT(*) FROM comandos {filtro.format(campo='criado_em')} GROUP BY estado ORDER BY estado",
+        parametros).fetchall()
+    conexao.close()
+    return pacotes, [tuple(c) for c in comandos]
+
+
+# ---------- Comandos ----------
 
 
 def _executar(caminho, sql, parametros=()):

@@ -1,6 +1,5 @@
 import json
 import os
-import sqlite3
 import threading
 import time
 
@@ -38,10 +37,6 @@ VALIDADE_PENDENTE_S = 30
 
 TIPO_ACK = 3
 CAMPOS_ENLACE = ("receptor_id", "frequencia_mhz", "rssi", "snr", "validos", "invalidos", "estranhos")
-CAMPOS_BANCO = (
-    "cubesat_id", "tipo", "contador", "tensao_bateria", "corrente", "temperatura", "modo",
-    "flags", "rssi", "snr", "validos", "invalidos", "estranhos", "frequencia_mhz", "receptor_id", "raw",
-)
 
 # Com vários receptores há uma ponte por estação, mas só uma pode transmitir os comandos
 ENVIA_COMANDOS = os.environ.get("ESTACAO_ENVIA_COMANDOS", "1") != "0"
@@ -84,19 +79,11 @@ def mensagens_telemetria(dados):
 
 
 def salvar_no_banco(dados):
-    """Insere o pacote no SQLite. Campo ausente fica vazio: nunca inventar um valor de telemetria."""
     try:
-        conexao = sqlite3.connect(DB_PATH)
-        marcadores = ", ".join("?" for _ in CAMPOS_BANCO)
-        conexao.execute(
-            f"INSERT INTO pacotes ({', '.join(CAMPOS_BANCO)}) VALUES ({marcadores})",
-            [dados.get(campo) for campo in CAMPOS_BANCO],
-        )
-        conexao.commit()
-        conexao.close()
-        print(f"💾 [SQLite] Pacote gravado com sucesso em {os.path.basename(DB_PATH)}!")
+        banco.gravar_pacote(DB_PATH, dados)
+        print(f"💾 [Banco] Pacote gravado com sucesso em {os.path.basename(DB_PATH)}!")
     except Exception as e:
-        print(f"❌ [Erro SQLite] Falha ao inserir o pacote: {e}")
+        print(f"❌ [Erro no banco] Falha ao gravar o pacote: {e}")
 
 
 def publicar(cliente, mensagens, descricao):

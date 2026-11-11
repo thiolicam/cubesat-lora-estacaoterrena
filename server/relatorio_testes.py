@@ -5,12 +5,13 @@ Exemplo, para o ensaio de 1 hora do MVP (S5.3):
 """
 import argparse
 import os
-import sqlite3
 import sys
 from datetime import datetime, timezone
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "dashboard"))
 from metricas import calcular_agregado, calcular_por_origem
+
+import banco
 
 BANCO_PADRAO = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "estacao.db")
 SILENCIO_MAXIMO_S = 60
@@ -27,17 +28,8 @@ def banco_para_local(texto):
 
 
 def ler_dados(caminho, desde=None):
-    uri = "file:" + os.path.abspath(caminho).replace("\\", "/") + "?mode=ro"
-    conexao = sqlite3.connect(uri, uri=True)
-    conexao.row_factory = sqlite3.Row
-    filtro, parametros = ("WHERE {campo} >= ?", (desde,)) if desde else ("", ())
-    pacotes = [dict(l) for l in conexao.execute(
-        f"SELECT * FROM pacotes {filtro.format(campo='data_hora')} ORDER BY id", parametros)]
-    comandos = conexao.execute(
-        f"SELECT estado, COUNT(*) FROM comandos {filtro.format(campo='criado_em')} GROUP BY estado ORDER BY estado",
-        parametros).fetchall()
-    conexao.close()
-    return pacotes, [tuple(c) for c in comandos]
+    """Pacotes e comandos do período, lidos sem alterar o banco."""
+    return banco.ler_periodo(os.path.abspath(caminho), desde)
 
 
 def medir_periodo(pacotes):
