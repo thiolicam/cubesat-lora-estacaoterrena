@@ -80,7 +80,7 @@ python dashboard/dashboard.py
 
 Abra http://localhost:5000.
 
-**Passa se:** cada pacote aceito aparece no dashboard e no `estacao.db`, e a linha do gráfico continua a cada novo pacote.
+**Passa se:** cada pacote aceito aparece no dashboard e no banco (`estacao` no MongoDB, ou `estacao.db` com `ESTACAO_BANCO=sqlite`), e a linha do gráfico continua a cada novo pacote.
 
 **MQTT:** o S5.1 prevê passar pelo broker. Com o serviço do Mosquitto rodando, assine todos os tópicos em outro terminal. Use `127.0.0.1`, e não `localhost`, para cair no mesmo broker da ponte:
 

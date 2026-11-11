@@ -177,7 +177,7 @@ O broker é o Mosquitto, com a configuração de `server/mosquitto.conf`. A pont
 | `GET /api/estatisticas?receptor=&frequencia=` | Uma linha por receptor e frequência, em todo o histórico |
 | `GET /api/estatisticas?periodo=hora` | O mesmo, hora a hora; o período está em UTC |
 
-As estatísticas trazem `esperados`, `recebidos`, `corrompidos`, `nao_chegaram`, `interrupcoes`, `taxa_recepcao`, `rssi_medio` e `snr_medio`. Elas são calculadas na hora a partir da tabela `pacotes`, sem uma tabela própria, porque as perdas dependem da sequência dos contadores de cada receptor.
+As estatísticas trazem `esperados`, `recebidos`, `corrompidos`, `nao_chegaram`, `interrupcoes`, `taxa_recepcao`, `rssi_medio` e `snr_medio`. Elas são calculadas na hora a partir dos pacotes gravados, sem uma coleção própria, porque as perdas dependem da sequência dos contadores de cada receptor.
 
 ## Vários receptores
 
@@ -187,7 +187,7 @@ O `/api/painel` entrega por transmissão a cópia de melhor RSSI, com `copias` e
 
 ## Banco de dados
 
-A tabela `pacotes` é definida em `server/banco.py` e guarda uma linha por pacote válido.
+O banco padrão é o MongoDB ([server/banco_mongo.py](../server/banco_mongo.py)); o SQLite ([server/banco_sqlite.py](../server/banco_sqlite.py)) tem os mesmos campos. A coleção `pacotes` guarda um documento por pacote válido, com os campos abaixo e um `seq` crescente, que mantém a ordem de chegada.
 
 | Coluna | Descrição |
 |---|---|

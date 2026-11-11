@@ -83,7 +83,21 @@ python dashboard/dashboard.py
 Os testes de bancada estão em [TESTMVP.md](TESTMVP.md), a demonstração em [docs/demo-mvp.md](docs/demo-mvp.md) e o relatório de um teste sai de `server/relatorio_testes.py`.
 
 ## Banco de dados
-O banco é um arquivo SQLite: `estacao.db` com as placas e `estacao_sim.db` na simulação. Todo o acesso a ele fica em [server/banco.py](server/banco.py); a ponte, o dashboard e o relatório só chamam as funções desse arquivo. Para trocar de banco (por exemplo, MongoDB), basta reescrever o `banco.py` mantendo as mesmas funções e o mesmo formato dos dados devolvidos.
+O banco padrão é o **MongoDB**, que no Windows roda como serviço e inicia sozinho:
+
+```bash
+winget install MongoDB.Server
+```
+
+Os dados das placas ficam no banco `estacao`, e os da simulação, no `estacao_sim`. Cada pacote recebido é um documento na coleção `pacotes`, e cada comando, um documento em `comandos`. Para ver os dados, use o [MongoDB Compass](https://www.mongodb.com/products/tools/compass) em `mongodb://127.0.0.1:27017`.
+
+O **SQLite** continua disponível, sem servidor: defina `ESTACAO_BANCO=sqlite`, e os dados vão para os arquivos `estacao.db` e `estacao_sim.db`. Os testes automatizados usam o SQLite, e os testes de contrato conferem que as duas versões se comportam igual.
+
+Todo o acesso ao banco passa por [server/banco.py](server/banco.py), que escolhe entre [banco_mongo.py](server/banco_mongo.py) e [banco_sqlite.py](server/banco_sqlite.py). Para copiar os dados de um arquivo SQLite para o MongoDB:
+
+```bash
+venv\Scripts\python server\migrar_para_mongo.py estacao.db
+```
 
 ## Como operar mais de um receptor
 Cada receptor é uma placa com o próprio `RECEPTOR_ID`, definido na gravação. No PowerShell:
@@ -105,5 +119,5 @@ No dashboard, sem filtro de receptor, cada transmissão conta uma vez, e os grá
 ## Testes
 
 ```bash
-python -m unittest discover tests
+python -m unittest
 ```

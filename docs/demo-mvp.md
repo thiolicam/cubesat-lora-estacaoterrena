@@ -9,7 +9,7 @@ Só apresente com as placas depois de aprovar os testes T1 a T6 do [roteiro de b
 - [ ] Duas placas LION com ESP32, antenas conectadas e firmware gravado
 - [ ] Cabos micro-USB de dados, e um reserva
 - [ ] Suspensão do notebook desligada nas configurações de energia do Windows
-- [ ] Serviço do Mosquitto rodando (`Get-Service mosquitto`)
+- [ ] Serviços do Mosquitto e do MongoDB rodando (`Get-Service mosquitto, MongoDB`)
 - [ ] Monitor Serial do PlatformIO fechado, porque só um programa pode usar a porta
 - [ ] Porta da estação terrena conhecida (`pio device list`)
 - [ ] Relatório do ensaio de 1 hora aberto (`docs/ensaio-mvp.md`)
@@ -39,7 +39,7 @@ Abra http://localhost:5000 e ligue o CubeSat.
 | 1 min | As duas placas e o fluxo do sistema | "O CubeSat simulado transmite telemetria por LoRa. A estação recebe, valida o CRC e entrega ao computador por USB." |
 | 2 min | Dashboard: status e gráficos | "Cada pacote aparece aqui em tempo real, com tensão, corrente, temperatura, RSSI e SNR." |
 | 1 min | Terminal do `mosquitto_sub` | "Os mesmos dados são publicados no MQTT, em tópicos separados." |
-| 2 min | Tabela de pacotes e banco | "Tudo fica gravado no SQLite: é possível consultar o histórico e calcular a taxa de recepção." |
+| 2 min | Tabela de pacotes e banco | "Tudo fica gravado no MongoDB, um documento por pacote: é possível consultar o histórico e calcular a taxa de recepção." |
 | 2 min | Cubra ou afaste uma antena | "RSSI e SNR pioram na hora. Se um pacote se perde, a linha do gráfico é interrompida." |
 | 1 min | Desligue o CubeSat | "O dashboard avisa que não há pacotes, em vez de continuar mostrando o último valor como atual." |
 | 1 min | Relatório do ensaio de 1 hora | Apresente os números medidos. |
