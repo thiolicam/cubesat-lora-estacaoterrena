@@ -140,10 +140,10 @@ def main():
     parser.add_argument("--saida", help="grava em um arquivo, em vez de mostrar na tela")
     args = parser.parse_args()
 
-    if not os.path.exists(args.banco):
+    if banco.TIPO == "sqlite" and not os.path.exists(args.banco):
         sys.exit(f"Banco não encontrado: {args.banco}")
     pacotes, comandos = ler_dados(args.banco, local_para_banco(args.desde) if args.desde else None)
-    relatorio = gerar_relatorio(pacotes, comandos, args.minimo_horas, os.path.basename(args.banco))
+    relatorio = gerar_relatorio(pacotes, comandos, args.minimo_horas, banco.descrever(args.banco))
     if args.saida:
         with open(args.saida, "w", encoding="utf-8") as arquivo:
             arquivo.write(relatorio)

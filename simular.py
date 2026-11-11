@@ -1,7 +1,7 @@
 """Roda o sistema completo sem placas: simulador + ponte serial + dashboard.
 
 Uso: python simular.py [opcoes do simulador, como --perda 0.2]
-Os dados vao para estacao_sim.db, recriado a cada execucao, e nunca para estacao.db.
+Os dados vao para o banco estacao_sim, recriado a cada execucao, e nunca para o estacao.
 """
 import os
 import socket
@@ -9,6 +9,8 @@ import subprocess
 import sys
 
 RAIZ = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, os.path.join(RAIZ, "server"))
+import banco  # noqa: E402
 BANCO = os.path.join(RAIZ, "estacao_sim.db")
 PORTA_SIMULADOR = 7000
 PORTA_DASHBOARD = 5000
@@ -25,8 +27,10 @@ def main():
     if porta_em_uso(PORTA_DASHBOARD):
         sys.exit(f"A porta {PORTA_DASHBOARD} já está em uso: feche a outra execução (Ctrl+C no terminal dela) e tente de novo.")
 
-    if os.path.exists(BANCO):
-        os.remove(BANCO)
+    try:
+        banco.apagar_banco(BANCO)
+    except Exception as erro:
+        sys.exit(f"Não consegui acessar o banco ({banco.TIPO}): {erro}")
 
     ambiente = dict(
         os.environ,

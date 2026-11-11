@@ -81,7 +81,7 @@ def mensagens_telemetria(dados):
 def salvar_no_banco(dados):
     try:
         banco.gravar_pacote(DB_PATH, dados)
-        print(f"💾 [Banco] Pacote gravado com sucesso em {os.path.basename(DB_PATH)}!")
+        print(f"💾 [Banco] Pacote gravado com sucesso em {banco.descrever(DB_PATH)}!")
     except Exception as e:
         print(f"❌ [Erro no banco] Falha ao gravar o pacote: {e}")
 
