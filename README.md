@@ -82,6 +82,9 @@ python dashboard/dashboard.py
 
 Os testes de bancada estão em [TESTMVP.md](TESTMVP.md), a demonstração em [docs/demo-mvp.md](docs/demo-mvp.md) e o relatório de um teste sai de `server/relatorio_testes.py`.
 
+## Banco de dados
+O banco é um arquivo SQLite: `estacao.db` com as placas e `estacao_sim.db` na simulação. Todo o acesso a ele fica em [server/banco.py](server/banco.py); a ponte, o dashboard e o relatório só chamam as funções desse arquivo. Para trocar de banco (por exemplo, MongoDB), basta reescrever o `banco.py` mantendo as mesmas funções e o mesmo formato dos dados devolvidos.
+
 ## Como operar mais de um receptor
 Cada receptor é uma placa com o próprio `RECEPTOR_ID`, definido na gravação. No PowerShell:
 

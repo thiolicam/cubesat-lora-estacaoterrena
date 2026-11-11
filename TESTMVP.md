@@ -102,7 +102,7 @@ Com o T4 rodando:
 
 ## T6. Aceitação do MVP (S5.3)
 
-Antes de começar, **desligue a suspensão do notebook** nas configurações de energia do Windows. Se ele dormir, o teste para. Anote o horário e deixe o T4 rodando por pelo menos 1 hora. No fim, gere o relatório, trocando o horário pelo de início:
+Antes de começar, **desligue a suspensão e o desligamento da tela** nas configurações de energia do Windows. Em notebooks com modo de espera moderno, apagar a tela já faz o computador dormir, e o teste para. Anote o horário e deixe o T4 rodando por pelo menos 1 hora. No fim, gere o relatório, trocando o horário pelo de início:
 
 ```bash
 python server/relatorio_testes.py --desde "2026-11-05 14:00" --minimo-horas 1 --saida docs/ensaio-mvp.md
